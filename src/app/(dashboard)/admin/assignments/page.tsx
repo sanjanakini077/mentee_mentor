@@ -23,7 +23,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import { assignMentorToStudent } from '@/lib/services/adminService'
-import { createClient } from '@/lib/supabase/client'
+import { getStore } from '@/lib/storage/demoStore'
 import { formatDate } from '@/lib/utils'
 import type { Profile } from '@/types'
 
@@ -48,89 +48,31 @@ export default function AdminAssignmentsPage() {
 
   const loadData = async () => {
       try {
-        const supabase = createClient()
+        const store = getStore()
 
-        // 1. Get current admin
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-        if (!user) throw new Error('Authentication required.')
+        // 1. Fetch department mentors
+        const mentorList = store.profiles.filter((p) => p.role === 'mentor')
+        setMentors(mentorList)
 
-        const { data: adminProf } = await supabase
-          .from('profiles')
-          .select('department')
-          .eq('user_id', user.id)
-          .single()
+        // 2. Fetch department students
+        const studentList = store.studentProfiles.map((sp) => ({
+          ...sp,
+          profiles: store.profiles.find((p) => p.id === sp.profile_id),
+        }))
+        setStudents(studentList)
 
-        if (!adminProf) throw new Error('Administrator profile not found.')
-        const dept = adminProf.department
-
-        // 2. Fetch department mentors
-        const { data: mentorList } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('department', dept)
-          .eq('role', 'mentor')
-          .order('full_name', { ascending: true })
-
-        setMentors(mentorList || [])
-
-        // 3. Fetch department students
-        const { data: studentList } = await supabase
-          .from('student_profiles')
-          .select(`
-          id,
-          usn,
-          semester,
-          department,
-          verification_status,
-          profiles (
-            full_name,
-            email
-          )
-        `)
-          .eq('department', dept)
-          .order('usn', { ascending: true })
-
-        setStudents(studentList || [])
-
-        // 4. Fetch all mentor_assignments in department
-        const { data: assignList, error: assignErr } = await supabase
-          .from('mentor_assignments')
-          .select(`
-          id,
-          assigned_at,
-          is_active,
-          notes,
-          student:student_profiles (
-            id,
-            usn,
-            semester,
-            department,
-            profiles (
-              full_name,
-              email
-            )
-          ),
-          mentor:profiles!mentor_assignments_mentor_profile_id_fkey (
-            id,
-            full_name,
-            email,
-            phone_number
-          ),
-          assigned_by:profiles!mentor_assignments_assigned_by_profile_id_fkey (
-            full_name
-          )
-        `)
-          .order('assigned_at', { ascending: false })
-
-        if (assignErr) throw new Error(assignErr.message)
-
-        // Filter by department
-        const deptAssignments = (assignList || []).filter(
-          (a: any) => a.student?.department === dept
-        )
-        setAssignments(deptAssignments)
+        // 3. Fetch all mentor_assignments
+        const assignList = store.mentorAssignments.map((a) => {
+          const sp = store.studentProfiles.find((s) => s.id === a.student_profile_id)
+          const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
+          const mentor = store.profiles.find((p) => p.id === a.mentor_profile_id)
+          return {
+            ...a,
+            student: sp ? { ...sp, profiles: stProf } : null,
+            mentor: mentor || null,
+          }
+        })
+        setAssignments(assignList)
       } catch (err: any) {
         setError(err?.message || 'Failed to load mentorship allocations.')
       } finally {
@@ -140,6 +82,8 @@ export default function AdminAssignmentsPage() {
 
     useEffect(() => {
       loadData()
+      window.addEventListener('mms-store-changed', loadData)
+      return () => window.removeEventListener('mms-store-changed', loadData)
     }, [])
 
     const openAllocateModal = (studentId?: string) => {

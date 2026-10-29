@@ -1,4 +1,8 @@
-import { createClient } from '@/lib/supabase/client'
+import {
+  getStore,
+  saveStore,
+  getCurrentUser,
+} from '@/lib/storage/demoStore'
 import type {
   Profile,
   StudentProfile,
@@ -56,171 +60,88 @@ export function calculateProfileCompletion(
 }
 
 /**
- * Loads or scaffolds the authenticated mentee's full record from Supabase
+ * Loads the active student mentee's full record from browser localStorage demoStore.
  */
 export async function getMenteeFullData(): Promise<MenteeFullData> {
-  const supabase = createClient()
+  const store = getStore()
+  const currentUser = getCurrentUser()
 
-  // 1. Get current authenticated user
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    throw new Error('You must be signed in as a student to access this portal.')
-  }
-
-  // 2. Load user's profile by user_id or email fallback
-  let { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle<Profile>()
-
-  if (!profile && user.email) {
-    const { data: profileByEmail } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('email', user.email)
-      .maybeSingle<Profile>()
-
-    if (profileByEmail) {
-      profile = profileByEmail
-      // Automatically sync the user_id if it differs
-      await supabase
-        .from('profiles')
-        .update({ user_id: user.id })
-        .eq('id', profileByEmail.id)
-    }
-  }
+  // Find or default to demo student
+  let profile = store.profiles.find(
+    (p) =>
+      p.id === currentUser?.id ||
+      p.email === currentUser?.email ||
+      p.email === 'student@demo.com'
+  )
 
   if (!profile) {
-    // If not found in profiles, create initial profile entry
-    const initialName =
-      user.user_metadata?.full_name || user.email?.split('@')[0] || 'Student'
-    const initialDept =
-      user.user_metadata?.department || 'Information Science & Engineering'
-
-    const { data: newProfile, error: createProfileErr } = await supabase
-      .from('profiles')
-      .upsert(
-        {
-          user_id: user.id,
-          role: 'mentee',
-          full_name: initialName,
-          email: user.email!,
-          department: initialDept,
-          phone_number: user.user_metadata?.phone_number || null,
-        },
-        { onConflict: 'email' }
-      )
-      .select('*')
-      .single<Profile>()
-
-    if (createProfileErr || !newProfile) {
-      console.error('Profile creation error:', createProfileErr)
-      throw new Error(createProfileErr?.message || 'Unable to initialize user profile.')
-    }
-    profile = newProfile
+    profile = store.profiles.find((p) => p.role === 'mentee') || store.profiles[0]
   }
 
-  // 3. Load or initialize student_profiles entry
-  let { data: studentProfile } = await supabase
-    .from('student_profiles')
-    .select('*')
-    .eq('profile_id', profile.id)
-    .maybeSingle<StudentProfile>()
+  // Find or initialize student profile
+  let studentProfile = store.studentProfiles.find((sp) => sp.profile_id === profile!.id)
 
   if (!studentProfile) {
-    const rawUsn =
-      user.user_metadata?.usn ||
-      `USN${Math.floor(100000 + Math.random() * 900000)}`
-    const { data: newSp, error: createSpErr } = await supabase
-      .from('student_profiles')
-      .insert({
-        profile_id: profile.id,
-        usn: rawUsn.toUpperCase().trim(),
-        department: profile.department,
-        semester: Number(user.user_metadata?.semester) || 1,
-        academic_batch: '2024-2028',
-        verification_status: 'draft',
-      })
-      .select('*')
-      .single<StudentProfile>()
-
-    if (createSpErr || !newSp) {
-      console.warn('Could not auto-create student profile:', createSpErr)
-      studentProfile = {
-        id: profile.id,
-        profile_id: profile.id,
-        usn: rawUsn,
-        department: profile.department,
-        semester: 1,
-        academic_batch: '2024-2028',
-        verification_status: 'draft',
-      }
-    } else {
-      studentProfile = newSp
+    studentProfile = {
+      id: `sp-${profile.id}`,
+      profile_id: profile.id,
+      usn: '4NM21IS042',
+      department: profile.department || 'Information Science & Engineering',
+      semester: 6,
+      academic_batch: '2021-2025',
+      section: 'A',
+      phone: profile.phone_number || '+91 98450 12345',
+      blood_group: 'O+',
+      address: 'Nitte, Karkala Taluk, Udupi District, Karnataka 574110',
+      parent_name: 'B. Suresh Shet',
+      parent_phone: '+91 98450 99887',
+      verification_status: 'submitted',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      profiles: profile,
     }
+    store.studentProfiles.push(studentProfile)
+    saveStore(store)
+  } else {
+    studentProfile.profiles = profile
   }
 
-  // Attach profiles object
-  studentProfile.profiles = profile
+  // Find mentor assignment
+  const assignment = store.mentorAssignments.find(
+    (a) => a.student_profile_id === studentProfile!.id && a.is_active
+  )
 
-  // 4. Fetch assigned mentor
   let assignedMentor: Profile | null = null
   let mentorAssignmentDate: string | undefined = undefined
 
-  const { data: assignment } = await supabase
-    .from('mentor_assignments')
-    .select('mentor_profile_id, assigned_at')
-    .eq('student_profile_id', studentProfile.id)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (assignment?.mentor_profile_id) {
+  if (assignment) {
+    assignedMentor = store.profiles.find((p) => p.id === assignment.mentor_profile_id) || null
     mentorAssignmentDate = assignment.assigned_at
-    const { data: mentorProf } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', assignment.mentor_profile_id)
-      .maybeSingle<Profile>()
-
-    if (mentorProf) {
-      assignedMentor = mentorProf
-    }
   }
 
-  // 5. Fetch academic records
-  const { data: academicRecords } = await supabase
-    .from('academic_records')
-    .select('*')
-    .eq('student_profile_id', studentProfile.id)
-    .order('semester', { ascending: true })
-    .order('course_code', { ascending: true })
+  // Academic records for this student
+  const academicRecords = store.academicRecords
+    .filter((ar) => ar.student_profile_id === studentProfile!.id || ar.student_id === studentProfile!.id)
+    .sort((a, b) => a.semester - b.semester)
 
-  // 6. Fetch mentor notes shared with this student
-  const { data: mentorNotes } = await supabase
-    .from('mentor_notes')
-    .select('*')
-    .eq('student_profile_id', studentProfile.id)
-    .eq('visibility', 'shared_with_mentee')
-    .order('note_date', { ascending: false })
+  // Mentor notes visible to mentee
+  const mentorNotes = store.mentorNotes
+    .filter(
+      (n) =>
+        (n.student_profile_id === studentProfile!.id || n.student_id === studentProfile!.id) &&
+        n.visibility === 'shared_with_mentee'
+    )
+    .sort((a, b) => new Date(b.note_date).getTime() - new Date(a.note_date).getTime())
 
-  // 7. Fetch mentor recommendations for this student
-  const { data: recommendations } = await supabase
-    .from('mentor_recommendations')
-    .select('*')
-    .eq('student_profile_id', studentProfile.id)
-    .order('created_at', { ascending: false })
+  // Recommendations for this student
+  const recommendations = store.recommendations
+    .filter((r) => r.student_profile_id === studentProfile!.id || r.student_id === studentProfile!.id)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-  // 8. Fetch notifications
-  const { data: notifications } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('recipient_profile_id', profile.id)
-    .order('created_at', { ascending: false })
+  // Notifications for student
+  const notifications = store.notifications
+    .filter((n) => n.recipient_profile_id === profile!.id)
+    .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())
 
   const { rate, missing } = calculateProfileCompletion(profile, studentProfile)
 
@@ -229,17 +150,17 @@ export async function getMenteeFullData(): Promise<MenteeFullData> {
     studentProfile,
     assignedMentor,
     mentorAssignmentDate,
-    academicRecords: (academicRecords as any) || [],
-    mentorNotes: (mentorNotes as any) || [],
-    recommendations: (recommendations as any) || [],
-    notifications: (notifications as any) || [],
+    academicRecords,
+    mentorNotes,
+    recommendations,
+    notifications,
     completionRate: rate,
     missingFields: missing,
   }
 }
 
 /**
- * Updates mentee demographic and contact details
+ * Updates mentee demographic and contact details in localStorage
  */
 export async function updateMenteeProfile(params: {
   profileId: string
@@ -254,9 +175,8 @@ export async function updateMenteeProfile(params: {
   parentPhone?: string
   currentStatus: VerificationStatus
 }) {
-  const supabase = createClient()
+  const store = getStore()
 
-  // Verify status permits modification
   if (params.currentStatus === 'submitted') {
     throw new Error('Your profile is currently under official review and cannot be modified until reviewed.')
   }
@@ -265,48 +185,47 @@ export async function updateMenteeProfile(params: {
   }
 
   // 1. Update profiles table
-  const { error: profileErr } = await supabase
-    .from('profiles')
-    .update({
+  const profileIndex = store.profiles.findIndex((p) => p.id === params.profileId)
+  if (profileIndex >= 0) {
+    store.profiles[profileIndex] = {
+      ...store.profiles[profileIndex],
       full_name: params.fullName.trim(),
-      phone_number: params.phoneNumber?.trim() || null,
+      phone_number: params.phoneNumber?.trim() || undefined,
       updated_at: new Date().toISOString(),
-    })
-    .eq('id', params.profileId)
-
-  if (profileErr) {
-    throw new Error(`Failed to update profile: ${profileErr.message}`)
+    }
   }
 
   // 2. Update student_profiles table
-  const spPayload: Record<string, unknown> = {
-    semester: Number(params.semester),
-    blood_group: params.bloodGroup?.trim() || null,
-    address: params.address?.trim() || null,
-    parent_name: params.parentName?.trim() || null,
-    parent_phone: params.parentPhone?.trim() || null,
-    updated_at: new Date().toISOString(),
+  const spIndex = store.studentProfiles.findIndex((sp) => sp.id === params.studentProfileId)
+  if (spIndex >= 0) {
+    const existing = store.studentProfiles[spIndex]
+    store.studentProfiles[spIndex] = {
+      ...existing,
+      semester: Number(params.semester),
+      blood_group: params.bloodGroup?.trim() || undefined,
+      address: params.address?.trim() || undefined,
+      parent_name: params.parentName?.trim() || undefined,
+      parent_phone: params.parentPhone?.trim() || undefined,
+      phone: params.phoneNumber?.trim() || existing.phone,
+      usn:
+        params.currentStatus === 'draft' && params.usn
+          ? params.usn.trim().toUpperCase()
+          : existing.usn,
+      updated_at: new Date().toISOString(),
+    }
   }
 
-  // Allow USN edit only in draft mode
-  if (params.currentStatus === 'draft' && params.usn) {
-    spPayload.usn = params.usn.trim().toUpperCase()
+  // Update current user if matching
+  if (store.currentUser?.id === params.profileId && profileIndex >= 0) {
+    store.currentUser = store.profiles[profileIndex]
   }
 
-  const { error: spErr } = await supabase
-    .from('student_profiles')
-    .update(spPayload)
-    .eq('id', params.studentProfileId)
-
-  if (spErr) {
-    throw new Error(`Failed to update student profile: ${spErr.message}`)
-  }
-
+  saveStore(store)
   return true
 }
 
 /**
- * Adds or updates an academic record
+ * Adds or updates an academic record in localStorage
  */
 export async function saveAcademicRecord(params: {
   id?: string
@@ -325,7 +244,7 @@ export async function saveAcademicRecord(params: {
   remarks?: string
   currentVerificationStatus: VerificationStatus
 }) {
-  const supabase = createClient()
+  const store = getStore()
 
   if (params.currentVerificationStatus === 'submitted') {
     throw new Error('Cannot add or edit academic records while your verification submission is under review.')
@@ -334,68 +253,73 @@ export async function saveAcademicRecord(params: {
     throw new Error('Academic records have been officially approved. Contact your mentor or HOD to request changes.')
   }
 
-  const payload = {
+  if (params.id) {
+    const index = store.academicRecords.findIndex((r) => r.id === params.id)
+    if (index >= 0) {
+      store.academicRecords[index] = {
+        ...store.academicRecords[index],
+        academic_year: params.academicYear.trim(),
+        semester: Number(params.semester),
+        course_code: params.courseCode.trim().toUpperCase(),
+        course_name: params.courseName.trim(),
+        credits: Number(params.credits) || 3,
+        marks_obtained: params.marksObtained !== undefined ? Number(params.marksObtained) : undefined,
+        max_marks: params.maxMarks ? Number(params.maxMarks) : 100,
+        grade: params.grade?.trim().toUpperCase(),
+        grade_points: params.gradePoints !== undefined ? Number(params.gradePoints) : undefined,
+        attendance_percentage:
+          params.attendancePercentage !== undefined ? Number(params.attendancePercentage) : undefined,
+        is_backlog: Boolean(params.isBacklog),
+        remarks: params.remarks?.trim(),
+        updated_at: new Date().toISOString(),
+      }
+      saveStore(store)
+      return store.academicRecords[index]
+    }
+  }
+
+  // Create new record
+  const newRecord: AcademicRecord = {
+    id: `ar-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     student_profile_id: params.studentProfileId,
+    student_id: params.studentProfileId,
     academic_year: params.academicYear.trim(),
     semester: Number(params.semester),
     course_code: params.courseCode.trim().toUpperCase(),
     course_name: params.courseName.trim(),
     credits: Number(params.credits) || 3,
-    marks_obtained: params.marksObtained !== undefined ? Number(params.marksObtained) : null,
+    marks_obtained: params.marksObtained !== undefined ? Number(params.marksObtained) : undefined,
     max_marks: params.maxMarks ? Number(params.maxMarks) : 100,
-    grade: params.grade?.trim().toUpperCase() || null,
-    grade_points: params.gradePoints !== undefined ? Number(params.gradePoints) : null,
+    grade: params.grade?.trim().toUpperCase(),
+    grade_points: params.gradePoints !== undefined ? Number(params.gradePoints) : undefined,
     attendance_percentage:
-      params.attendancePercentage !== undefined ? Number(params.attendancePercentage) : null,
+      params.attendancePercentage !== undefined ? Number(params.attendancePercentage) : undefined,
     is_backlog: Boolean(params.isBacklog),
-    remarks: params.remarks?.trim() || null,
+    remarks: params.remarks?.trim(),
+    created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
 
-  if (params.id) {
-    const { data, error } = await supabase
-      .from('academic_records')
-      .update(payload)
-      .eq('id', params.id)
-      .select('*')
-      .single()
-
-    if (error) throw new Error(error.message)
-    return data
-  } else {
-    const { data, error } = await supabase
-      .from('academic_records')
-      .insert(payload)
-      .select('*')
-      .single()
-
-    if (error) throw new Error(error.message)
-    return data
-  }
+  store.academicRecords.push(newRecord)
+  saveStore(store)
+  return newRecord
 }
 
 /**
- * Deletes an academic record
+ * Deletes an academic record from localStorage
  */
 export async function deleteAcademicRecord(
   recordId: string,
   verificationStatus: VerificationStatus
 ) {
-  const supabase = createClient()
+  const store = getStore()
 
   if (verificationStatus === 'submitted' || verificationStatus === 'approved') {
     throw new Error('Cannot delete records while verification is under review or already approved.')
   }
 
-  const { error } = await supabase
-    .from('academic_records')
-    .delete()
-    .eq('id', recordId)
-
-  if (error) {
-    throw new Error(`Failed to delete record: ${error.message}`)
-  }
-
+  store.academicRecords = store.academicRecords.filter((r) => r.id !== recordId)
+  saveStore(store)
   return true
 }
 
@@ -403,18 +327,14 @@ export async function deleteAcademicRecord(
  * Submits the mentee's profile and academic records for verification
  */
 export async function submitVerificationForReview(studentProfileId: string) {
-  const supabase = createClient()
+  const store = getStore()
+  const spIndex = store.studentProfiles.findIndex((sp) => sp.id === studentProfileId)
 
-  // 1. Fetch current status and profile info
-  const { data: sp, error: fetchErr } = await supabase
-    .from('student_profiles')
-    .select('id, verification_status, profile_id, usn, department, profiles(full_name)')
-    .eq('id', studentProfileId)
-    .single()
-
-  if (fetchErr || !sp) {
+  if (spIndex < 0) {
     throw new Error('Student profile record could not be found.')
   }
+
+  const sp = store.studentProfiles[spIndex]
 
   if (sp.verification_status === 'submitted') {
     throw new Error('Your records are already submitted and pending review.')
@@ -423,129 +343,107 @@ export async function submitVerificationForReview(studentProfileId: string) {
     throw new Error('Your records have already been approved by the department.')
   }
 
-  // 2. Update status to 'submitted'
-  const { error: updateErr } = await supabase
-    .from('student_profiles')
-    .update({
-      verification_status: 'submitted',
-      reviewed_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', studentProfileId)
-
-  if (updateErr) {
-    throw new Error(`Verification submission failed: ${updateErr.message}`)
+  // 1. Update status to 'submitted'
+  store.studentProfiles[spIndex] = {
+    ...sp,
+    verification_status: 'submitted',
+    reviewed_at: undefined,
+    updated_at: new Date().toISOString(),
   }
 
-  const studentName = (sp as any).profiles?.full_name || 'Student'
+  const studentProfile = store.studentProfiles[spIndex]
+  const studentUser = store.profiles.find((p) => p.id === studentProfile.profile_id)
+  const studentName = studentUser?.full_name || 'Student'
 
-  // 3. Create a confirmation notification for the mentee
-  try {
-    await supabase.from('notifications').insert({
-      recipient_profile_id: sp.profile_id,
-      title: 'Verification Request Submitted',
-      message: 'Your profile and academic records have been submitted for faculty mentor review and HOD endorsement.',
+  // 2. Notification for student
+  store.notifications.push({
+    id: `notif-${Date.now()}-1`,
+    recipient_profile_id: studentProfile.profile_id,
+    title: 'Verification Request Submitted',
+    message: 'Your profile and academic records have been submitted for faculty mentor review and HOD endorsement.',
+    type: 'info',
+    related_entity_type: 'student_profiles',
+    related_entity_id: studentProfileId,
+    is_read: false,
+    created_at: new Date().toISOString(),
+  })
+
+  // 3. Notification for HOD
+  const hodProfile = store.profiles.find(
+    (p) => p.role === 'administrator' || (p.role as string) === 'hod'
+  )
+  if (hodProfile) {
+    store.notifications.push({
+      id: `notif-${Date.now()}-2`,
+      recipient_profile_id: hodProfile.id,
+      title: 'Profile Submitted for Endorsement',
+      message: `${studentName} (${studentProfile.usn}) has submitted their profile for departmental verification.`,
+      type: 'warning',
+      related_entity_type: 'student_profiles',
+      related_entity_id: studentProfileId,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    })
+  }
+
+  // 4. Notification for assigned mentor if exists
+  const assignment = store.mentorAssignments.find(
+    (a) => a.student_profile_id === studentProfileId && a.is_active
+  )
+  if (assignment) {
+    store.notifications.push({
+      id: `notif-${Date.now()}-3`,
+      recipient_profile_id: assignment.mentor_profile_id,
+      title: 'Mentee Profile Submitted',
+      message: `Your mentee ${studentName} (${studentProfile.usn}) submitted their profile for institutional verification.`,
       type: 'info',
       related_entity_type: 'student_profiles',
       related_entity_id: studentProfileId,
+      is_read: false,
+      created_at: new Date().toISOString(),
     })
-  } catch (notifErr) {
-    console.warn('Could not create student notification log:', notifErr)
   }
 
-  // 4. Notify the relevant Department Administrator / HOD
-  try {
-    const { data: hods } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('department', sp.department)
-      .eq('role', 'administrator')
+  // 5. Audit log
+  store.auditLogs.push({
+    id: `aud-${Date.now()}`,
+    actor_profile_id: studentProfile.profile_id,
+    action: 'SUBMITTED_STUDENT_PROFILE',
+    target_type: 'student_profiles',
+    target_id: studentProfileId,
+    metadata: { usn: studentProfile.usn, status: 'submitted' },
+    created_at: new Date().toISOString(),
+  })
 
-    if (hods && hods.length > 0) {
-      for (const hod of hods) {
-        await supabase.from('notifications').insert({
-          recipient_profile_id: hod.id,
-          title: `New Student Submission — ${sp.usn}`,
-          message: `${studentName} (${sp.usn}) has submitted their profile and coursework for departmental verification.`,
-          type: 'info',
-          related_entity_type: 'student_profiles',
-          related_entity_id: studentProfileId,
-        })
-      }
-    }
-  } catch (hodNotifErr) {
-    console.warn('Could not notify HOD of submission:', hodNotifErr)
-  }
-
-  // 5. Notify the student's assigned faculty mentor if active
-  try {
-    const { data: assignment } = await supabase
-      .from('mentor_assignments')
-      .select('mentor_profile_id')
-      .eq('student_profile_id', studentProfileId)
-      .eq('is_active', true)
-      .maybeSingle()
-
-    if (assignment?.mentor_profile_id) {
-      await supabase.from('notifications').insert({
-        recipient_profile_id: assignment.mentor_profile_id,
-        title: `Mentee Profile Submitted — ${studentName}`,
-        message: `${studentName} (${sp.usn}) submitted profile information for verification review.`,
-        type: 'info',
-        related_entity_type: 'student_profiles',
-        related_entity_id: studentProfileId,
-      })
-    }
-  } catch (mentorNotifErr) {
-    console.warn('Could not notify mentor of submission:', mentorNotifErr)
-  }
-
-  // 6. Record in immutable audit log
-  try {
-    await supabase.from('audit_logs').insert({
-      actor_profile_id: sp.profile_id,
-      action: 'SUBMITTED_STUDENT_PROFILE',
-      target_type: 'student_profiles',
-      target_id: studentProfileId,
-      metadata: {
-        usn: sp.usn,
-        student_name: studentName,
-        department: sp.department,
-      },
-    })
-  } catch (auditErr) {
-    console.warn('Audit log write error:', auditErr)
-  }
-
+  saveStore(store)
   return true
 }
 
 /**
- * Marks a notification as read
+ * Marks notification as read
  */
 export async function markNotificationRead(notificationId: string) {
-  const supabase = createClient()
-  const { error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('id', notificationId)
-
-  if (error) throw new Error(error.message)
+  const store = getStore()
+  const notif = store.notifications.find((n) => n.id === notificationId)
+  if (notif) {
+    notif.is_read = true
+    notif.read = true
+    saveStore(store)
+  }
   return true
 }
 
 /**
- * Marks all notifications as read for current user
+ * Marks all notifications as read for profile
  */
 export async function markAllNotificationsRead(recipientProfileId: string) {
-  const supabase = createClient()
-  const { error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('recipient_profile_id', recipientProfileId)
-    .eq('is_read', false)
-
-  if (error) throw new Error(error.message)
+  const store = getStore()
+  store.notifications.forEach((n) => {
+    if (n.recipient_profile_id === recipientProfileId) {
+      n.is_read = true
+      n.read = true
+    }
+  })
+  saveStore(store)
   return true
 }
-

@@ -1,63 +1,43 @@
-import { createClient } from '@/lib/supabase/client'
+import { getStore, saveStore } from '@/lib/storage/demoStore'
 import type { AppNotification, NotificationType } from '@/types'
 
 /**
- * Fetches real in-app notifications for the currently authenticated profile
+ * Fetches in-app notifications for profile from demoStore
  */
 export async function getProfileNotifications(profileId: string): Promise<AppNotification[]> {
-  const supabase = createClient()
-
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('recipient_profile_id', profileId)
-    .order('created_at', { ascending: false })
-    .limit(25)
-
-  if (error) {
-    console.error('Error fetching profile notifications:', error)
-    return []
-  }
-
-  return (data as any) || []
+  const store = getStore()
+  return store.notifications
+    .filter((n) => n.recipient_profile_id === profileId)
+    .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())
 }
 
 /**
  * Marks an individual notification as read
  */
 export async function markNotificationAsRead(notificationId: string): Promise<boolean> {
-  const supabase = createClient()
-
-  const { error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('id', notificationId)
-
-  if (error) {
-    console.error('Error marking notification read:', error)
-    return false
+  const store = getStore()
+  const notif = store.notifications.find((n) => n.id === notificationId)
+  if (notif) {
+    notif.is_read = true
+    notif.read = true
+    saveStore(store)
+    return true
   }
-
-  return true
+  return false
 }
 
 /**
  * Marks all notifications as read for a profile
  */
 export async function markAllProfileNotificationsAsRead(profileId: string): Promise<boolean> {
-  const supabase = createClient()
-
-  const { error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('recipient_profile_id', profileId)
-    .eq('is_read', false)
-
-  if (error) {
-    console.error('Error marking all notifications read:', error)
-    return false
-  }
-
+  const store = getStore()
+  store.notifications.forEach((n) => {
+    if (n.recipient_profile_id === profileId) {
+      n.is_read = true
+      n.read = true
+    }
+  })
+  saveStore(store)
   return true
 }
 
@@ -72,23 +52,20 @@ export async function createInAppNotification(params: {
   relatedEntityType?: string
   relatedEntityId?: string
 }): Promise<boolean> {
-  const supabase = createClient()
-
-  const { error } = await supabase.from('notifications').insert({
+  const store = getStore()
+  const newNotif: AppNotification = {
+    id: `notif-${Date.now()}`,
     recipient_profile_id: params.recipientProfileId,
     title: params.title.trim(),
     message: params.message.trim(),
     type: params.type || 'info',
-    related_entity_type: params.relatedEntityType || null,
-    related_entity_id: params.relatedEntityId || null,
+    related_entity_type: params.relatedEntityType,
+    related_entity_id: params.relatedEntityId,
     is_read: false,
-  })
-
-  if (error) {
-    console.error('Failed to create notification:', error)
-    return false
+    created_at: new Date().toISOString(),
   }
-
+  store.notifications.unshift(newNotif)
+  saveStore(store)
   return true
 }
 
@@ -103,45 +80,26 @@ export async function notifyDepartmentHOD(params: {
   relatedEntityType?: string
   relatedEntityId?: string
 }): Promise<boolean> {
-  const supabase = createClient()
+  const store = getStore()
+  const hod = store.profiles.find(
+    (p) => p.role === 'administrator' || (p.role as string) === 'hod'
+  )
 
-  // Find HOD profile for department
-  const { data: hodProfiles } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('department', params.department)
-    .eq('role', 'administrator')
-
-  if (!hodProfiles || hodProfiles.length === 0) {
-    // Fallback: notify any administrator
-    const { data: anyAdmin } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'administrator')
-      .limit(1)
-
-    if (anyAdmin && anyAdmin[0]) {
-      return await createInAppNotification({
-        recipientProfileId: anyAdmin[0].id,
-        ...params,
-      })
-    }
-    return false
-  }
-
-  // Send notification to department HOD(s)
-  for (const hod of hodProfiles) {
-    await createInAppNotification({
+  if (hod) {
+    return createInAppNotification({
       recipientProfileId: hod.id,
-      ...params,
+      title: params.title,
+      message: params.message,
+      type: params.type || 'info',
+      relatedEntityType: params.relatedEntityType,
+      relatedEntityId: params.relatedEntityId,
     })
   }
-
-  return true
+  return false
 }
 
 /**
- * Sends a notification to the student's actively assigned mentor
+ * Sends a notification to the assigned faculty mentor of a student
  */
 export async function notifyAssignedMentor(params: {
   studentProfileId: string
@@ -151,22 +109,20 @@ export async function notifyAssignedMentor(params: {
   relatedEntityType?: string
   relatedEntityId?: string
 }): Promise<boolean> {
-  const supabase = createClient()
+  const store = getStore()
+  const assign = store.mentorAssignments.find(
+    (a) => a.student_profile_id === params.studentProfileId && a.is_active
+  )
 
-  const { data: assignment } = await supabase
-    .from('mentor_assignments')
-    .select('mentor_profile_id')
-    .eq('student_profile_id', params.studentProfileId)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (!assignment?.mentor_profile_id) {
-    return false
+  if (assign && assign.mentor_profile_id) {
+    return createInAppNotification({
+      recipientProfileId: assign.mentor_profile_id,
+      title: params.title,
+      message: params.message,
+      type: params.type || 'info',
+      relatedEntityType: params.relatedEntityType,
+      relatedEntityId: params.relatedEntityId,
+    })
   }
-
-  return await createInAppNotification({
-    recipientProfileId: assignment.mentor_profile_id,
-    ...params,
-  })
+  return false
 }
-

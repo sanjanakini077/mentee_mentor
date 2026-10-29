@@ -33,7 +33,7 @@ import {
   deleteMentorRecommendation,
   type MentorStudentSummary,
 } from '@/lib/services/mentorService'
-import { createClient } from '@/lib/supabase/client'
+import { getStore } from '@/lib/storage/demoStore'
 import { formatDate } from '@/lib/utils'
 import type { MentorRecommendation, RecommendationCategory } from '@/types'
 
@@ -61,26 +61,23 @@ export default function MentorRecommendationsPage() {
       const dashboard = await getMentorDashboardData()
       setAssignedStudents(dashboard.assignedStudents)
 
-      const supabase = createClient()
-      const { data: recs, error: recErr } = await supabase
-        .from('mentor_recommendations')
-        .select(`
-          *,
-          student:student_profiles (
-            id,
-            usn,
-            semester,
-            profiles (
-              full_name,
-              email
-            )
-          )
-        `)
-        .eq('mentor_profile_id', dashboard.mentorProfile.id)
-        .order('created_at', { ascending: false })
+      const store = getStore()
+      const recs = store.recommendations
+        .filter(
+          (r) =>
+            r.mentor_profile_id === dashboard.mentorProfile.id ||
+            r.mentor_id === dashboard.mentorProfile.id
+        )
+        .map((r) => {
+          const sp = store.studentProfiles.find((s) => s.id === r.student_profile_id)
+          const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
+          return {
+            ...r,
+            student: sp ? { ...sp, profiles: stProf || undefined } : undefined,
+          }
+        })
 
-      if (recErr) throw new Error(recErr.message)
-      setRecommendations((recs as any) || [])
+      setRecommendations(recs)
     } catch (err: any) {
       setError(err?.message || 'Failed to load recommendations.')
     } finally {
@@ -90,6 +87,8 @@ export default function MentorRecommendationsPage() {
 
   useEffect(() => {
     loadData()
+    window.addEventListener('mms-store-changed', loadData)
+    return () => window.removeEventListener('mms-store-changed', loadData)
   }, [])
 
   const openNewModal = () => {

@@ -21,7 +21,10 @@ import {
   getMentorDashboardData,
   type MentorDashboardData,
 } from '@/lib/services/mentorService'
-import { createClient } from '@/lib/supabase/client'
+import {
+  markNotificationAsRead,
+  markAllProfileNotificationsAsRead,
+} from '@/lib/services/notificationService'
 import { formatDateTime } from '@/lib/utils'
 import type { AppNotification } from '@/types'
 
@@ -48,7 +51,9 @@ export default function MentorNotificationsPage() {
 
     useEffect(() => {
       loadData()
-}, [loadData])
+      window.addEventListener('mms-store-changed', loadData)
+      return () => window.removeEventListener('mms-store-changed', loadData)
+    }, [loadData])
 
 const filtered = useMemo(() => {
   if (filter === 'unread') {
@@ -61,14 +66,7 @@ const unreadCount = notifications.filter((n) => !n.is_read && !n.read).length
 
 const handleMarkOne = async (id: string) => {
   try {
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('notifications')
-      .update({ is_read: true })
-      .eq('id', id)
-
-    if (error) throw error
-
+    await markNotificationAsRead(id)
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, is_read: true, read: true } : n))
     )
@@ -83,15 +81,7 @@ const handleMarkAll = async () => {
   setIsProcessing(true)
 
   try {
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('notifications')
-      .update({ is_read: true })
-      .eq('recipient_profile_id', mentorId)
-      .eq('is_read', false)
-
-    if (error) throw error
-
+    await markAllProfileNotificationsAsRead(mentorId)
     setNotifications((prev) =>
       prev.map((n) => ({ ...n, is_read: true, read: true }))
     )

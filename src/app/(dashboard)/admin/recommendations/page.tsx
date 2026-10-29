@@ -21,7 +21,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import { reviewMentorRecommendation } from '@/lib/services/adminService'
-import { createClient } from '@/lib/supabase/client'
+import { getStore } from '@/lib/storage/demoStore'
 import { formatDate } from '@/lib/utils'
 
 export default function AdminRecommendationsPage() {
@@ -37,62 +37,32 @@ export default function AdminRecommendationsPage() {
   const [comment, setComment] = useState('')
   const [isCommitting, setIsCommitting] = useState(false)
 
-    const loadData = async () => {
+    const loadData = () => {
       try {
-        const supabase = createClient()
+        const store = getStore()
+        const deptRecs = store.recommendations.map((r) => {
+          const sp = store.studentProfiles.find((s) => s.id === r.student_profile_id)
+          const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
+          const mentor = store.profiles.find((p) => p.id === r.mentor_profile_id)
+          return {
+            ...r,
+            student: sp ? { ...sp, profiles: stProf } : null,
+            mentor: mentor || null,
+          }
+        })
+        setRecommendations(deptRecs)
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load recommendations.')
+      } finally {
+        setIsLoading(false)
+      }
+    }
 
-      const {
-          data: { user },
-        } = await supabase.auth.getUser()
-        if (!user) throw new Error('Authentication required.')
-
-        const { data: adminProf } = await supabase
-          .from('profiles')
-          .select('department')
-          .eq('user_id', user.id)
-          .single()
-
-        if (!adminProf) throw new Error('Administrator profile not found.')
-        const dept = adminProf.department
-
-        const { data: recList, error: recErr } = await supabase
-          .from('mentor_recommendations')
-          .select(`
-          *,
-          student:student_profiles (
-            id,
-            usn,
-            semester,
-            department,
-            profiles (
-              full_name,
-              email
-            )
-          ),
-          mentor:profiles!mentor_recommendations_mentor_profile_id_fkey (
-            id,
-            full_name,
-            email
-          )
-        `)
-          .order('created_at', { ascending: false })
-
-        if (recErr) throw new Error(recErr.message)
-
-        const deptRecs = (recList || []).filter(
-          (r: any) => r.student?.department === dept
-        )
-  setRecommendations(deptRecs)
-} catch (err: any) {
-  setError(err?.message || 'Failed to load recommendations.')
-} finally {
-  setIsLoading(false)
-}
-  }
-
-  useEffect(() => {
-    loadData()
-  }, [])
+    useEffect(() => {
+      loadData()
+      window.addEventListener('mms-store-changed', loadData)
+      return () => window.removeEventListener('mms-store-changed', loadData)
+    }, [])
 
   const handleDecisionSubmit = async () => {
     if (!activeRec || !decision) return

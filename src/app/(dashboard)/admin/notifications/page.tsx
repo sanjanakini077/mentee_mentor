@@ -22,7 +22,7 @@ import {
   markNotificationAsRead,
   markAllProfileNotificationsAsRead,
 } from '@/lib/services/notificationService'
-import { createClient } from '@/lib/supabase/client'
+import { getStore, getCurrentUser } from '@/lib/storage/demoStore'
 import { formatDateTime } from '@/lib/utils'
 import type { AppNotification } from '@/types'
 
@@ -37,23 +37,15 @@ export default function AdminNotificationsPage() {
 
     const loadData = useCallback(async () => {
       try {
-        const supabase = createClient()
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
+        const store = getStore()
+        const user = getCurrentUser()
+        const admin =
+          store.profiles.find((p) => p.id === user?.id || p.email === 'hod@demo.com') ||
+          store.profiles.find((p) => p.role === 'administrator' || (p.role as string) === 'hod') ||
+          store.profiles[0]
 
-        if (!user) throw new Error('Authentication required.')
-
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('user_id', user.id)
-          .single()
-
-        if (!prof) throw new Error('Administrator profile not found.')
-        setAdminId(prof.id)
-
-        const list = await getProfileNotifications(prof.id)
+        setAdminId(admin.id)
+        const list = await getProfileNotifications(admin.id)
         setNotifications(list)
       } catch (err: any) {
         toastError(err?.message || 'Failed to load notifications.')
@@ -64,6 +56,8 @@ export default function AdminNotificationsPage() {
 
     useEffect(() => {
       loadData()
+      window.addEventListener('mms-store-changed', loadData)
+      return () => window.removeEventListener('mms-store-changed', loadData)
 }, [loadData])
 
 const filtered = useMemo(() => {

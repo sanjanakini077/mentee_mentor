@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { createClient } from '@/lib/supabase/client'
+import { getStore } from '@/lib/storage/demoStore'
 import { formatDateTime } from '@/lib/utils'
 import type { AuditLog } from '@/types'
 
@@ -22,24 +22,17 @@ export default function AdminAuditLogPage() {
   const [actionFilter, setActionFilter] = useState('all')
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null)
 
-  const loadLogs = async () => {
+  const loadLogs = () => {
     try {
-      const supabase = createClient()
-      const { data, error: fetchErr } = await supabase
-        .from('audit_logs')
-        .select(`
-          *,
-          actor:profiles (
-            id,
-            full_name,
-            email,
-            role
-          )
-        `)
-        .order('created_at', { ascending: false })
+      const store = getStore()
+      const formatted = store.auditLogs
+        .map((l) => ({
+          ...l,
+          actor: store.profiles.find((p) => p.id === l.actor_profile_id),
+        }))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-      if (fetchErr) throw fetchErr
-      setLogs((data as any) || [])
+      setLogs(formatted)
     } catch (err: any) {
       setError(err?.message || 'Failed to load audit history.')
     } finally {
@@ -49,6 +42,8 @@ export default function AdminAuditLogPage() {
 
   useEffect(() => {
     loadLogs()
+    window.addEventListener('mms-store-changed', loadLogs)
+    return () => window.removeEventListener('mms-store-changed', loadLogs)
   }, [])
 
   const filteredLogs = useMemo(() => {

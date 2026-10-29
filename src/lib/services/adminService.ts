@@ -1,4 +1,8 @@
-import { createClient } from '@/lib/supabase/client'
+import {
+  getStore,
+  saveStore,
+  getCurrentUser,
+} from '@/lib/storage/demoStore'
 import type {
   Profile,
   StudentProfile,
@@ -24,113 +28,84 @@ export interface AdminDashboardData {
 }
 
 /**
- * Loads HOD Administrator dashboard metrics and pending queue within authorized department
+ * Loads HOD Administrator dashboard metrics and pending queue from demoStore
  */
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
-  const supabase = createClient()
+  const store = getStore()
+  const currentUser = getCurrentUser()
 
-  // 1. Authenticate user
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  let adminProfile = store.profiles.find(
+    (p) =>
+      p.id === currentUser?.id ||
+      p.email === currentUser?.email ||
+      p.email === 'hod@demo.com' ||
+      p.email === 'hod.ise@nmamit.in'
+  )
 
-  if (authError || !user) {
-    throw new Error('Authentication required for administrative access.')
+  if (!adminProfile) {
+    adminProfile =
+      store.profiles.find((p) => p.role === 'administrator' || (p.role as string) === 'hod') ||
+      store.profiles[0]
   }
 
-  // 2. Fetch administrator profile
-  const { data: adminProfile, error: profErr } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('user_id', user.id)
-    .single<Profile>()
+  const dept = adminProfile.department || 'Information Science & Engineering'
 
-  if (profErr || !adminProfile) {
-    throw new Error('Administrator profile record not found.')
-  }
+  // Student list in department
+  const deptStudents = store.studentProfiles
+    .filter((sp) => !sp.department || sp.department === dept)
+    .map((sp) => {
+      const prof = store.profiles.find((p) => p.id === sp.profile_id)
+      return {
+        ...sp,
+        profiles: prof,
+      }
+    })
 
-  const dept = adminProfile.department
-
-  // 3. Count students in department by status
-  const { data: deptStudents } = await supabase
-    .from('student_profiles')
-    .select(`
-      id,
-      usn,
-      semester,
-      verification_status,
-      reviewed_at,
-      profiles (
-        id,
-        full_name,
-        email
-      )
-    `)
-    .eq('department', dept)
-
-  const studentsList: any[] = deptStudents || []
-
-  const totalStudents = studentsList.length
-  const awaitingReviewCount = studentsList.filter(
+  const totalStudents = deptStudents.length
+  const awaitingReviewCount = deptStudents.filter(
     (s) => s.verification_status === 'submitted'
   ).length
-  const approvedCount = studentsList.filter(
+  const approvedCount = deptStudents.filter(
     (s) => s.verification_status === 'approved'
   ).length
-  const correctionNeededCount = studentsList.filter(
+  const correctionNeededCount = deptStudents.filter(
     (s) => s.verification_status === 'correction_requested'
   ).length
 
-  // 4. Count active mentors in department
-  const { count: activeMentorsCount } = await supabase
-    .from('profiles')
-    .select('*', { count: 'exact', head: true })
-    .eq('department', dept)
-    .eq('role', 'mentor')
+  // Count active mentors in department
+  const activeMentorsCount = store.profiles.filter(
+    (p) => p.role === 'mentor' && (!p.department || p.department === dept)
+  ).length
 
-  // 5. Fetch pending mentor recommendations in department
-  const { data: recs } = await supabase
-    .from('mentor_recommendations')
-    .select(`
-      *,
-      student:student_profiles (
-        id,
-        usn,
-        semester,
-        department,
-        profiles (
-          full_name
-        )
-      ),
-      mentor:profiles!mentor_recommendations_mentor_profile_id_fkey (
-        id,
-        full_name,
-        email
-      )
-    `)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: false })
+  // Pending recommendations in department
+  const pendingRecommendations = store.recommendations
+    .filter((r) => r.status === 'pending')
+    .map((r) => {
+      const sp = store.studentProfiles.find((s) => s.id === r.student_profile_id)
+      const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
+      const mentorProf = store.profiles.find((p) => p.id === r.mentor_profile_id)
+      return {
+        ...r,
+        student: sp ? { ...sp, profiles: stProf } : null,
+        mentor: mentorProf || null,
+      }
+    })
 
-  // Filter recommendations matching department
-  const pendingRecs = (recs || []).filter(
-    (r: any) => r.student?.department === dept
+  const pendingStudentSubmissions = deptStudents.filter(
+    (s) => s.verification_status === 'submitted'
   )
 
-  // 6. Fetch recent audit logs
-  const { data: logs } = await supabase
-    .from('audit_logs')
-    .select(`
-      *,
-      actor:profiles (
-        id,
-        full_name,
-        email,
-        role
-      )
-    `)
-    .order('created_at', { ascending: false })
-    .limit(8)
+  // Recent audit logs
+  const recentAuditLogs = store.auditLogs
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 10)
+    .map((log) => {
+      const actor = store.profiles.find((p) => p.id === log.actor_profile_id)
+      return {
+        ...log,
+        actor,
+      }
+    })
 
   return {
     adminProfile,
@@ -138,407 +113,380 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     awaitingReviewCount,
     approvedCount,
     correctionNeededCount,
-    pendingRecommendationsCount: pendingRecs.length,
-    activeMentorsCount: activeMentorsCount || 0,
-    pendingStudentSubmissions: studentsList.filter(
-      (s) => s.verification_status === 'submitted'
-    ),
-    pendingRecommendations: pendingRecs,
-    recentAuditLogs: (logs as any) || [],
+    pendingRecommendationsCount: pendingRecommendations.length,
+    activeMentorsCount,
+    pendingStudentSubmissions,
+    pendingRecommendations,
+    recentAuditLogs,
   }
 }
 
 /**
- * Reviews a student profile (Approve, Reject, or Request Corrections)
+ * Reviews a student profile (approve, reject, or request corrections)
  */
 export async function reviewStudentProfile(params: {
   studentProfileId: string
-  decision: 'approved' | 'rejected' | 'correction_requested'
+  status?: 'approved' | 'rejected' | 'correction_requested'
+  decision?: 'approved' | 'rejected' | 'correction_requested'
+  comment?: string
   reviewComment?: string
 }) {
-  const supabase = createClient()
+  const finalStatus = params.status || params.decision || 'approved'
+  const finalComment = params.comment || params.reviewComment || ''
+  const store = getStore()
+  const currentUser = getCurrentUser()
+  const adminProf =
+    store.profiles.find((p) => p.id === currentUser?.id || p.email === 'hod@demo.com') ||
+    store.profiles.find((p) => p.role === 'administrator' || (p.role as string) === 'hod') ||
+    store.profiles[0]
 
-  if (
-    (params.decision === 'rejected' || params.decision === 'correction_requested') &&
-    (!params.reviewComment || params.reviewComment.trim().length === 0)
-  ) {
-    throw new Error('An explanatory review comment is required when rejecting or requesting corrections.')
+  const spIndex = store.studentProfiles.findIndex((s) => s.id === params.studentProfileId)
+  if (spIndex < 0) {
+    throw new Error('Student profile not found.')
   }
 
-  // 1. Get current admin profile
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Authentication required.')
-
-  const { data: adminProf } = await supabase
-    .from('profiles')
-    .select('id, full_name, department')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!adminProf) throw new Error('Administrator profile not found.')
-
-  // 2. Update student_profiles record
-  const { data: updatedSp, error: updateErr } = await supabase
-    .from('student_profiles')
-    .update({
-      verification_status: params.decision,
-      review_comment: params.reviewComment?.trim() || null,
-      reviewer_profile_id: adminProf.id,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', params.studentProfileId)
-    .select('profile_id, usn')
-    .single()
-
-  if (updateErr) {
-    throw new Error(`Review decision failed: ${updateErr.message}`)
+  const existingSp = store.studentProfiles[spIndex]
+  store.studentProfiles[spIndex] = {
+    ...existingSp,
+    verification_status: finalStatus,
+    reviewer_profile_id: adminProf.id,
+    review_comment: finalComment.trim() || undefined,
+    reviewed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   }
 
-  // 3. Append immutable audit log
-  try {
-    await supabase.from('audit_logs').insert({
-      actor_profile_id: adminProf.id,
-      action: `STUDENT_VERIFICATION_${params.decision.toUpperCase()}`,
-      target_type: 'student_profiles',
-      target_id: params.studentProfileId,
-      metadata: {
-        decision: params.decision,
-        comment: params.reviewComment || '',
-        student_usn: updatedSp?.usn,
-      },
-    })
-  } catch (auditErr) {
-    console.warn('Audit log write error:', auditErr)
+  const updatedSp = store.studentProfiles[spIndex]
+
+  // Audit log
+  store.auditLogs.unshift({
+    id: `aud-${Date.now()}`,
+    actor_profile_id: adminProf.id,
+    action: `STUDENT_VERIFICATION_${finalStatus.toUpperCase()}`,
+    target_type: 'student_profiles',
+    target_id: params.studentProfileId,
+    metadata: {
+      new_status: finalStatus,
+      reviewer_comment: finalComment,
+    },
+    created_at: new Date().toISOString(),
+  })
+
+  // Notify student
+  const statusMessages: Record<string, string> = {
+    approved: 'Your academic profile and records have been officially verified and endorsed by the HOD.',
+    rejected: `Your verification submission was rejected by the department. Reason: ${finalComment || 'Contact department desk.'}`,
+    correction_requested: `Corrections requested on your profile by HOD: ${finalComment || 'Please update your details.'}`,
   }
 
-  // 4. Notify student
-  try {
-    await supabase.from('notifications').insert({
-      recipient_profile_id: updatedSp.profile_id,
-      title:
-        params.decision === 'approved'
-          ? 'Profile Verification Approved'
-          : params.decision === 'correction_requested'
-          ? 'Action Required: Corrections Requested'
-          : 'Profile Verification Rejected',
-      message:
-        params.reviewComment ||
-        `Your student profile verification was marked as ${params.decision} by the department head.`,
-      type:
-        params.decision === 'approved'
-          ? 'success'
-          : params.decision === 'correction_requested'
-          ? 'warning'
-          : 'danger',
-      related_entity_type: 'student_profiles',
-      related_entity_id: params.studentProfileId,
-    })
-  } catch (notifErr) {
-    console.warn('Notification write error:', notifErr)
-  }
+  store.notifications.unshift({
+    id: `notif-${Date.now()}`,
+    recipient_profile_id: updatedSp.profile_id,
+    title: `Profile Verification: ${finalStatus.replace('_', ' ').toUpperCase()}`,
+    message: statusMessages[finalStatus] || 'Your verification status has been updated.',
+    type: finalStatus === 'approved' ? 'success' : finalStatus === 'rejected' ? 'danger' : 'warning',
+    related_entity_type: 'student_profiles',
+    related_entity_id: params.studentProfileId,
+    is_read: false,
+    created_at: new Date().toISOString(),
+  })
 
-  return true
+  saveStore(store)
+  return updatedSp
 }
 
 /**
- * Reviews a faculty mentor recommendation (Approve or Reject)
+ * Reviews a mentor recommendation (approve or reject)
  */
 export async function reviewMentorRecommendation(params: {
   recommendationId: string
-  decision: 'approved' | 'rejected'
+  status?: 'approved' | 'rejected'
+  decision?: 'approved' | 'rejected'
+  comment?: string
   reviewComment?: string
 }) {
-  const supabase = createClient()
+  const finalStatus = params.status || params.decision || 'approved'
+  const finalComment = params.comment || params.reviewComment || ''
+  const store = getStore()
+  const currentUser = getCurrentUser()
+  const adminProf =
+    store.profiles.find((p) => p.id === currentUser?.id || p.email === 'hod@demo.com') ||
+    store.profiles.find((p) => p.role === 'administrator' || (p.role as string) === 'hod') ||
+    store.profiles[0]
 
-  if (
-    params.decision === 'rejected' &&
-    (!params.reviewComment || params.reviewComment.trim().length === 0)
-  ) {
-    throw new Error('An explanatory comment is required when rejecting a faculty recommendation.')
+  const recIndex = store.recommendations.findIndex((r) => r.id === params.recommendationId)
+  if (recIndex < 0) {
+    throw new Error('Recommendation not found.')
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Authentication required.')
-
-  const { data: adminProf } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!adminProf) throw new Error('Administrator profile not found.')
-
-  // Update recommendation
-  const { data: updatedRec, error: updateErr } = await supabase
-    .from('mentor_recommendations')
-    .update({
-      status: params.decision,
-      review_comment: params.reviewComment?.trim() || null,
-      reviewer_profile_id: adminProf.id,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', params.recommendationId)
-    .select('student_profile_id, mentor_profile_id, category')
-    .single()
-
-  if (updateErr) {
-    throw new Error(`Recommendation review failed: ${updateErr.message}`)
+  const existingRec = store.recommendations[recIndex]
+  store.recommendations[recIndex] = {
+    ...existingRec,
+    status: finalStatus,
+    reviewer_profile_id: adminProf.id,
+    review_comment: finalComment.trim() || undefined,
+    hod_comment: finalComment.trim() || undefined,
+    reviewed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   }
 
-  // Append audit log
-  try {
-    await supabase.from('audit_logs').insert({
-      actor_profile_id: adminProf.id,
-      action: `RECOMMENDATION_${params.decision.toUpperCase()}`,
-      target_type: 'mentor_recommendations',
-      target_id: params.recommendationId,
-      metadata: {
-        decision: params.decision,
-        comment: params.reviewComment || '',
-        category: updatedRec?.category,
-      },
-    })
-  } catch (auditErr) {
-    console.warn('Audit log write error:', auditErr)
-  }
+  const updatedRec = store.recommendations[recIndex]
+
+  // Audit log
+  store.auditLogs.unshift({
+    id: `aud-${Date.now()}`,
+    actor_profile_id: adminProf.id,
+    action: `RECOMMENDATION_${finalStatus.toUpperCase()}`,
+    target_type: 'mentor_recommendations',
+    target_id: params.recommendationId,
+    metadata: {
+      status: finalStatus,
+      comment: finalComment,
+    },
+    created_at: new Date().toISOString(),
+  })
 
   // Notify mentor
-  if (updatedRec?.mentor_profile_id) {
-    try {
-      await supabase.from('notifications').insert({
-        recipient_profile_id: updatedRec.mentor_profile_id,
-        title: `Recommendation ${params.decision === 'approved' ? 'Endorsed' : 'Rejected'}`,
-        message:
-          params.reviewComment ||
-          `Your faculty recommendation was ${params.decision} by the Department Head.`,
-        type: params.decision === 'approved' ? 'success' : 'warning',
-        related_entity_type: 'mentor_recommendations',
-        related_entity_id: params.recommendationId,
-      })
-    } catch (notifErr) {
-      console.warn('Notification write error for mentor:', notifErr)
-    }
+  if (updatedRec.mentor_profile_id) {
+    store.notifications.unshift({
+      id: `notif-${Date.now()}-1`,
+      recipient_profile_id: updatedRec.mentor_profile_id,
+      title: `Recommendation ${finalStatus.toUpperCase()}`,
+      message: `Your ${updatedRec.category || ''} recommendation has been ${finalStatus} by Department HOD. ${finalComment ? `Feedback: "${finalComment}"` : ''}`,
+      type: finalStatus === 'approved' ? 'success' : 'danger',
+      related_entity_type: 'mentor_recommendations',
+      related_entity_id: params.recommendationId,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    })
   }
 
   // Notify student if approved
-  if (params.decision === 'approved' && updatedRec?.student_profile_id) {
-    try {
-      const { data: stProfile } = await supabase
-        .from('student_profiles')
-        .select('profile_id')
-        .eq('id', updatedRec.student_profile_id)
-        .single()
-
-      if (stProfile?.profile_id) {
-        await supabase.from('notifications').insert({
-          recipient_profile_id: stProfile.profile_id,
-          title: 'Faculty Recommendation Endorsed',
-          message:
-            params.reviewComment ||
-            `A faculty recommendation for your academic portfolio has been approved and endorsed by the Department Head.`,
-          type: 'success',
-          related_entity_type: 'mentor_recommendations',
-          related_entity_id: params.recommendationId,
-        })
-      }
-    } catch (stNotifErr) {
-      console.warn('Notification write error for student:', stNotifErr)
+  if (finalStatus === 'approved' && updatedRec.student_profile_id) {
+    const sp = store.studentProfiles.find((s) => s.id === updatedRec.student_profile_id)
+    if (sp) {
+      store.notifications.unshift({
+        id: `notif-${Date.now()}-2`,
+        recipient_profile_id: sp.profile_id,
+        title: `Faculty Recommendation Endorsed`,
+        message: `A ${updatedRec.category || ''} recommendation from your faculty mentor has been approved by the HOD.`,
+        type: 'success',
+        related_entity_type: 'mentor_recommendations',
+        related_entity_id: params.recommendationId,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
     }
   }
 
-  return true
+  saveStore(store)
+  return updatedRec
 }
 
 /**
- * Assigns or re-assigns a faculty mentor to a student
+ * Assigns or reassigns a faculty mentor to a student
  */
 export async function assignMentorToStudent(params: {
   studentProfileId: string
   mentorProfileId: string
   notes?: string
 }) {
-  const supabase = createClient()
+  const store = getStore()
+  const currentUser = getCurrentUser()
+  const adminProf =
+    store.profiles.find((p) => p.id === currentUser?.id || p.email === 'hod@demo.com') ||
+    store.profiles.find((p) => p.role === 'administrator' || (p.role as string) === 'hod') ||
+    store.profiles[0]
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Authentication required.')
+  // Deactivate existing active assignment for this student
+  store.mentorAssignments.forEach((a) => {
+    if (a.student_profile_id === params.studentProfileId && a.is_active) {
+      a.is_active = false
+    }
+  })
 
-  const { data: adminProf } = await supabase
-    .from('profiles')
-    .select('id, department')
-    .eq('user_id', user.id)
-    .single()
+  // Create new active assignment
+  const newAssign: MentorAssignment = {
+    id: `asg-${Date.now()}`,
+    student_profile_id: params.studentProfileId,
+    mentor_profile_id: params.mentorProfileId,
+    assigned_by_profile_id: adminProf.id,
+    assigned_at: new Date().toISOString(),
+    is_active: true,
+    notes: params.notes?.trim() || 'Assigned by Department HOD.',
+  }
 
-  if (!adminProf) throw new Error('Administrator profile not found.')
+  store.mentorAssignments.push(newAssign)
 
-  // 1. Deactivate any existing active assignment for this student to prevent duplicate active assignments
-  await supabase
-    .from('mentor_assignments')
-    .update({ is_active: false })
-    .eq('student_profile_id', params.studentProfileId)
-    .eq('is_active', true)
+  const sp = store.studentProfiles.find((s) => s.id === params.studentProfileId)
+  const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
+  const mentorProf = store.profiles.find((p) => p.id === params.mentorProfileId)
 
-  // 2. Insert new active assignment
-  const { data: newAssign, error: insertErr } = await supabase
-    .from('mentor_assignments')
-    .insert({
+  // Audit log
+  store.auditLogs.unshift({
+    id: `aud-${Date.now()}`,
+    actor_profile_id: adminProf.id,
+    action: 'ASSIGNED_MENTOR_TO_STUDENT',
+    target_type: 'mentor_assignments',
+    target_id: newAssign.id,
+    metadata: {
       student_profile_id: params.studentProfileId,
       mentor_profile_id: params.mentorProfileId,
-      assigned_by_profile_id: adminProf.id,
-      is_active: true,
-      notes: params.notes?.trim() || 'Departmental faculty mentorship allocation',
-    })
-    .select('*')
-    .single()
+      notes: params.notes,
+    },
+    created_at: new Date().toISOString(),
+  })
 
-  if (insertErr) {
-    throw new Error(`Mentor allocation failed: ${insertErr.message}`)
-  }
+  // Notify mentor
+  store.notifications.unshift({
+    id: `notif-${Date.now()}-1`,
+    recipient_profile_id: params.mentorProfileId,
+    title: 'New Mentee Assigned',
+    message: `You have been designated as faculty mentor for ${stProf?.full_name || 'a student'} (${sp?.usn || ''}).`,
+    type: 'info',
+    related_entity_type: 'mentor_assignments',
+    related_entity_id: newAssign.id,
+    is_read: false,
+    created_at: new Date().toISOString(),
+  })
 
-  // 3. Log audit event
-  try {
-    await supabase.from('audit_logs').insert({
-      actor_profile_id: adminProf.id,
-      action: 'ASSIGNED_MENTOR',
-      target_type: 'mentor_assignments',
-      target_id: newAssign.id,
-      metadata: {
-        student_profile_id: params.studentProfileId,
-        mentor_profile_id: params.mentorProfileId,
-        notes: params.notes || '',
-      },
-    })
-  } catch (auditErr) {
-    console.warn('Audit log write error:', auditErr)
-  }
-
-  // 4. Notify mentor
-  try {
-    await supabase.from('notifications').insert({
-      recipient_profile_id: params.mentorProfileId,
-      title: 'New Student Allocated',
-      message: 'A student has been officially allocated to your mentorship desk by the Department Head.',
+  // Notify student
+  if (sp) {
+    store.notifications.unshift({
+      id: `notif-${Date.now()}-2`,
+      recipient_profile_id: sp.profile_id,
+      title: 'Mentor Allocated',
+      message: `${mentorProf?.full_name || 'A faculty mentor'} has been officially allocated as your faculty mentor.`,
       type: 'info',
       related_entity_type: 'mentor_assignments',
       related_entity_id: newAssign.id,
+      is_read: false,
+      created_at: new Date().toISOString(),
     })
-  } catch (notifErr) {
-    console.warn('Notification write error:', notifErr)
   }
 
-  return true
+  saveStore(store)
+  return newAssign
 }
 
 export interface FacultyMemberItem {
   id: string
   fullName: string
   email: string
-  phone: string | null
+  phone?: string
   department: string
-  activeMenteeCount: number
   createdAt: string
+  activeMenteeCount: number
 }
 
 /**
- * Retrieves all faculty mentors in the administrator's department with active mentee counts
+ * Loads department faculty members
  */
 export async function getDepartmentFacultyList(): Promise<{
   department: string
   faculty: FacultyMemberItem[]
+  mentors: (Profile & { activeStudentCount: number; phone?: string })[]
 }> {
-  const supabase = createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const store = getStore()
+  const currentUser = getCurrentUser()
+  const adminProf =
+    store.profiles.find((p) => p.id === currentUser?.id || p.email === 'hod@demo.com') ||
+    store.profiles.find((p) => p.role === 'administrator' || (p.role as string) === 'hod') ||
+    store.profiles[0]
 
-  if (!user) throw new Error('Authentication required.')
+  const dept = adminProf.department || 'Information Science & Engineering'
 
-  const { data: adminProf } = await supabase
-    .from('profiles')
-    .select('id, department')
-    .eq('user_id', user.id)
-    .single()
+  const mentors = store.profiles
+    .filter((p) => p.role === 'mentor' && (!p.department || p.department === dept))
+    .map((m) => {
+      const activeStudentCount = store.mentorAssignments.filter(
+        (a) => a.mentor_profile_id === m.id && a.is_active
+      ).length
 
-  if (!adminProf) throw new Error('Administrator profile not found.')
+      return {
+        ...m,
+        activeStudentCount,
+        phone: m.phone_number,
+      }
+    })
 
-  const dept = adminProf.department
-
-  // Fetch all mentors in department
-  const { data: mentorList, error: mentorErr } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, phone_number, department, created_at')
-    .eq('role', 'mentor')
-    .eq('department', dept)
-    .order('full_name', { ascending: true })
-
-  if (mentorErr) {
-    throw new Error(`Failed to load faculty roster: ${mentorErr.message}`)
-  }
-
-  // Fetch active assignments for these mentors
-  const mentorIds = (mentorList || []).map((m) => m.id)
-  let assignmentCounts: Record<string, number> = {}
-
-  if (mentorIds.length > 0) {
-    const { data: assignments } = await supabase
-      .from('mentor_assignments')
-      .select('mentor_profile_id')
-      .in('mentor_profile_id', mentorIds)
-      .eq('is_active', true)
-
-    if (assignments) {
-      assignments.forEach((a) => {
-        assignmentCounts[a.mentor_profile_id] = (assignmentCounts[a.mentor_profile_id] || 0) + 1
-      })
-    }
-  }
-
-  const faculty: FacultyMemberItem[] = (mentorList || []).map((m) => ({
+  const faculty: FacultyMemberItem[] = mentors.map((m) => ({
     id: m.id,
     fullName: m.full_name,
     email: m.email,
     phone: m.phone_number,
     department: m.department,
-    activeMenteeCount: assignmentCounts[m.id] || 0,
     createdAt: m.created_at,
+    activeMenteeCount: m.activeStudentCount,
   }))
 
   return {
     department: dept,
     faculty,
+    mentors,
   }
 }
 
 /**
- * Provisions a new faculty mentor account via the administrative endpoint
+ * Provisions a new faculty mentor in localStorage
  */
 export async function provisionFacultyMentor(params: {
   email: string
   fullName: string
-  password?: string
   phone?: string
-}): Promise<{ success: boolean; message: string }> {
-  const response = await fetch('/api/admin/faculty', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+  password?: string
+}) {
+  const store = getStore()
+  const currentUser = getCurrentUser()
+  const adminProf =
+    store.profiles.find((p) => p.id === currentUser?.id || p.email === 'hod@demo.com') ||
+    store.profiles.find((p) => p.role === 'administrator' || (p.role as string) === 'hod') ||
+    store.profiles[0]
+
+  const dept = adminProf.department || 'Information Science & Engineering'
+  const email = params.email.trim().toLowerCase()
+
+  const existing = store.profiles.find((p) => p.email.toLowerCase() === email)
+  if (existing) {
+    existing.role = 'mentor'
+    existing.full_name = params.fullName.trim()
+    existing.phone_number = params.phone?.trim() || existing.phone_number
+    saveStore(store)
+    return {
+      success: true,
+      profile: existing,
+      message: 'Existing user elevated to Faculty Mentor.',
+    }
+  }
+
+  const newFaculty: Profile = {
+    id: `p-mentor-${Date.now()}`,
+    user_id: `u-mentor-${Date.now()}`,
+    role: 'mentor',
+    full_name: params.fullName.trim(),
+    email,
+    department: dept,
+    phone_number: params.phone?.trim(),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+
+  store.profiles.push(newFaculty)
+
+  // Audit log
+  store.auditLogs.unshift({
+    id: `aud-${Date.now()}`,
+    actor_profile_id: adminProf.id,
+    action: 'PROVISIONED_FACULTY_MENTOR',
+    target_type: 'profiles',
+    target_id: newFaculty.id,
+    metadata: { email, full_name: params.fullName, department: dept },
+    created_at: new Date().toISOString(),
   })
 
-  const resJson = await response.json()
-  if (!response.ok) {
-    throw new Error(resJson.error || 'Failed to provision faculty mentor.')
-  }
-
+  saveStore(store)
   return {
     success: true,
-    message: resJson.message || 'Faculty member successfully created and ready to sign in.',
+    profile: newFaculty,
+    message: 'Faculty Mentor successfully provisioned in department directory.',
   }
 }
-

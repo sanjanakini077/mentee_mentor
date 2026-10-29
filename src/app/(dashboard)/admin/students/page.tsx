@@ -23,7 +23,7 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { createClient } from '@/lib/supabase/client'
+import { getStore } from '@/lib/storage/demoStore'
 import { formatDate } from '@/lib/utils'
 import type { StudentProfile, Profile, AcademicRecord } from '@/types'
 
@@ -44,70 +44,29 @@ export default function AdminStudentsPage() {
     const [studentAcademics, setStudentAcademics] = useState<AcademicRecord[]>([])
     const [isLoadingAcademics, setIsLoadingAcademics] = useState(false)
 
-    const loadData = async () => {
+    const loadData = () => {
       try {
-        const supabase = createClient()
+        const store = getStore()
+        const mentorList = store.profiles.filter((p) => p.role === 'mentor')
+        setMentors(mentorList)
 
-        // 1. Get admin profile to determine authorized department
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-        if (!user) throw new Error('Authentication required.')
-
-        const { data: adminProf } = await supabase
-          .from('profiles')
-          .select('department')
-          .eq('user_id', user.id)
-          .single()
-
-        if (!adminProf) throw new Error('Administrator profile not found.')
-        const dept = adminProf.department
-
-        // 2. Fetch department mentors
-        const { data: mentorList } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('department', dept)
-          .eq('role', 'mentor')
-
-        setMentors(mentorList || [])
-
-        // 3. Fetch department students with profile & active mentor assignment
-        const { data: studentList, error: stErr } = await supabase
-          .from('student_profiles')
-          .select(`
-          *,
-          profiles (
-            id,
-            full_name,
-            email,
-            phone_number
-          ),
-          mentor_assignments!mentor_assignments_student_profile_id_fkey (
-            id,
-            is_active,
-            mentor:profiles!mentor_assignments_mentor_profile_id_fkey (
-              id,
-              full_name,
-              email
-            )
+        const studentList = store.studentProfiles.map((s) => {
+          const prof = store.profiles.find((p) => p.id === s.profile_id)
+          const activeAssignment = store.mentorAssignments.find(
+            (a) => a.student_profile_id === s.id && a.is_active
           )
-        `)
-          .eq('department', dept)
-          .order('usn', { ascending: true })
+          const mentor = activeAssignment
+            ? store.profiles.find((p) => p.id === activeAssignment.mentor_profile_id)
+            : null
 
-        if (stErr) throw new Error(stErr.message)
-
-        // Transform rows to flatten active mentor
-        const transformed = (studentList || []).map((s: any) => {
-          const activeAssignment = s.mentor_assignments?.find((a: any) => a.is_active)
           return {
             ...s,
-            activeMentor: activeAssignment?.mentor || null,
+            profiles: prof,
+            activeMentor: mentor,
           }
         })
 
-        setStudents(transformed)
+        setStudents(studentList)
       } catch (err: any) {
         setError(err?.message || 'Failed to load department student directory.')
       } finally {
@@ -117,6 +76,8 @@ export default function AdminStudentsPage() {
 
     useEffect(() => {
       loadData()
+      window.addEventListener('mms-store-changed', loadData)
+      return () => window.removeEventListener('mms-store-changed', loadData)
     }, [])
 
     // Filtered Students
@@ -145,25 +106,23 @@ export default function AdminStudentsPage() {
   }, [students, search, semesterFilter, statusFilter, mentorFilter])
 
     // Open Student Inspection Modal
-    const openInspectModal = async (st: any) => {
+    const openInspectModal = (st: any) => {
       setSelectedStudent(st)
       setIsLoadingAcademics(true)
 
       try {
-        const supabase = createClient()
-        const { data: records } = await supabase
-          .from('academic_records')
-          .select('*')
-          .eq('student_profile_id', st.id)
-          .order('semester', { ascending: true })
+        const store = getStore()
+        const records = store.academicRecords
+          .filter((r) => r.student_profile_id === st.id || r.student_id === st.id)
+          .sort((a, b) => a.semester - b.semester)
 
-          setStudentAcademics((records as any) || [])
-        } catch (err) {
-          console.warn('Could not load course history:', err)
-        } finally {
-          setIsLoadingAcademics(false)
-        }
+        setStudentAcademics(records)
+      } catch (err) {
+        console.warn('Could not load course history:', err)
+      } finally {
+        setIsLoadingAcademics(false)
       }
+    }
 
   const columns: ColumnDef<any>[] = [
         {

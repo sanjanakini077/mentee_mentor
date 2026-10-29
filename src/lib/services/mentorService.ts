@@ -1,4 +1,8 @@
-import { createClient } from '@/lib/supabase/client'
+import {
+  getStore,
+  saveStore,
+  getCurrentUser,
+} from '@/lib/storage/demoStore'
 import type {
   Profile,
   StudentProfile,
@@ -51,316 +55,253 @@ export interface StudentFullDetail {
 }
 
 /**
- * Loads the mentor dashboard overview data from real Supabase records
+ * Loads the mentor dashboard overview data from demoStore
  */
 export async function getMentorDashboardData(): Promise<MentorDashboardData> {
-  const supabase = createClient()
+  const store = getStore()
+  const currentUser = getCurrentUser()
 
-  // 1. Get current authenticated user
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  let mentorProfile = store.profiles.find(
+    (p) =>
+      p.id === currentUser?.id ||
+      p.email === currentUser?.email ||
+      p.email === 'mentor@demo.com'
+  )
 
-  if (authError || !user) {
-    throw new Error('You must be signed in as faculty to view the Mentor Desk.')
+  if (!mentorProfile) {
+    mentorProfile = store.profiles.find((p) => p.role === 'mentor') || store.profiles[0]
   }
 
-  // 2. Fetch mentor's profile
-  const { data: mentorProfile, error: profileErr } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('user_id', user.id)
-    .single<Profile>()
+  // Active assignments for this mentor
+  const assignments = store.mentorAssignments.filter(
+    (a) => a.mentor_profile_id === mentorProfile!.id && a.is_active
+  )
 
-  if (profileErr || !mentorProfile) {
-    throw new Error('Faculty profile record not found.')
-  }
+  const assignedStudentIds = assignments.map((a) => a.student_profile_id)
 
-  // 3. Fetch active mentor assignments
-  const { data: assignments, error: assignErr } = await supabase
-    .from('mentor_assignments')
-    .select(`
-      student_profile_id,
-      assigned_at,
-      student_profiles (
-        id,
-        profile_id,
-        usn,
-        department,
-        semester,
-        academic_batch,
-        verification_status,
-        profiles (
-          id,
-          full_name,
-          email,
-          phone_number
-        )
-      )
-    `)
-    .eq('mentor_profile_id', mentorProfile.id)
-    .eq('is_active', true)
+  const studentSummaries: MentorStudentSummary[] = []
 
-  if (assignErr) {
-    console.error('Error fetching assignments:', assignErr)
-  }
+  for (const spId of assignedStudentIds) {
+    const sp = store.studentProfiles.find((s) => s.id === spId)
+    if (!sp) continue
 
-  const assignedStudentProfiles: any[] = (assignments || [])
-    .map((a: any) => a.student_profiles)
-    .filter(Boolean)
-
-  const studentProfileIds = assignedStudentProfiles.map((s) => s.id)
-
-  // 4. Fetch academic records for assigned students
-  let allAcademicRecords: AcademicRecord[] = []
-  if (studentProfileIds.length > 0) {
-    const { data: records } = await supabase
-      .from('academic_records')
-      .select('*')
-      .in('student_profile_id', studentProfileIds)
-
-    allAcademicRecords = (records as any) || []
-  }
-
-  // 5. Fetch mentor's authored notes
-  const { data: notes } = await supabase
-    .from('mentor_notes')
-    .select(`
-      *,
-      student:student_profiles(
-        id,
-        usn,
-        profiles(full_name)
-      )
-    `)
-    .eq('mentor_profile_id', mentorProfile.id)
-    .order('note_date', { ascending: false })
-
-  const mentorNotes = (notes as any) || []
-
-  // 6. Fetch recommendations
-  const { data: recs } = await supabase
-    .from('mentor_recommendations')
-    .select(`
-      *,
-      student:student_profiles(
-        id,
-        usn,
-        profiles(full_name)
-      )
-    `)
-    .eq('mentor_profile_id', mentorProfile.id)
-    .order('created_at', { ascending: false })
-
-  const mentorRecommendations = (recs as any) || []
-
-  // 7. Compute student summaries and follow-up flags
-  const studentSummaries: MentorStudentSummary[] = assignedStudentProfiles.map((sp) => {
-    const studentRecords = allAcademicRecords.filter(
-      (r) => r.student_profile_id === sp.id
+    const prof = store.profiles.find((p) => p.id === sp.profile_id)
+    const records = store.academicRecords.filter(
+      (r) => r.student_profile_id === sp.id || r.student_id === sp.id
     )
-    const totalCredits = studentRecords.reduce((sum, r) => sum + (r.credits || 0), 0)
-    const activeBacklogs = studentRecords.filter((r) => r.is_backlog).length
-    const attendanceSum = studentRecords.reduce(
-      (sum, r) => sum + (r.attendance_percentage || 0),
-      0
+    const notes = store.mentorNotes.filter(
+      (n) => n.student_profile_id === sp.id || n.student_id === sp.id
     )
+
+    const totalCourses = records.length
+    const totalCredits = records.reduce((acc, r) => acc + (r.credits || 0), 0)
+    const activeBacklogs = records.filter((r) => r.is_backlog).length
+
+    const validAtt = records.filter((r) => r.attendance_percentage !== undefined)
     const avgAttendance =
-      studentRecords.length > 0
-        ? Math.round(attendanceSum / studentRecords.length)
+      validAtt.length > 0
+        ? Math.round(
+            validAtt.reduce((acc, r) => acc + (r.attendance_percentage || 0), 0) /
+              validAtt.length
+          )
         : undefined
 
-    const studentNotes = mentorNotes.filter((n: MentorNote) => n.student_profile_id === sp.id)
-    const lastNoteDate = studentNotes[0]?.note_date
+    const sortedNotes = [...notes].sort(
+      (a, b) => new Date(b.note_date).getTime() - new Date(a.note_date).getTime()
+    )
+    const lastNoteDate = sortedNotes[0]?.note_date
 
-    // Determine if student needs attention
     let needsAttention = false
-    let attentionReason = ''
+    let attentionReason: string | undefined = undefined
 
-    if (sp.verification_status === 'submitted') {
+    if (activeBacklogs > 0) {
       needsAttention = true
-      attentionReason = 'Submission awaiting verification review'
-    } else if (activeBacklogs > 0) {
-      needsAttention = true
-      attentionReason = `${activeBacklogs} active backlog course(s)`
+      attentionReason = `${activeBacklogs} active academic backlogs.`
     } else if (avgAttendance !== undefined && avgAttendance < 75) {
       needsAttention = true
-      attentionReason = `Low average attendance (${avgAttendance}%)`
-    } else if (!lastNoteDate) {
+      attentionReason = `Low course attendance (${avgAttendance}%).`
+    } else if (sp.verification_status === 'submitted') {
       needsAttention = true
-      attentionReason = 'No initial mentoring session logged'
+      attentionReason = 'Profile awaiting departmental verification.'
     }
 
-    return {
+    studentSummaries.push({
       id: sp.id,
       profileId: sp.profile_id,
       usn: sp.usn,
-      fullName: sp.profiles?.full_name || 'Student',
-      email: sp.profiles?.email || '',
-      department: sp.department,
+      fullName: prof?.full_name || 'Student',
+      email: prof?.email || '',
+      department: sp.department || prof?.department || 'Information Science & Engineering',
       semester: sp.semester,
-      academicBatch: sp.academic_batch,
+      academicBatch: sp.academic_batch || '2021-2025',
       verificationStatus: sp.verification_status,
-      phone: sp.profiles?.phone_number,
-      totalCourses: studentRecords.length,
+      phone: prof?.phone_number || sp.phone,
+      totalCourses,
       totalCredits,
       activeBacklogs,
       avgAttendance,
       lastNoteDate,
       needsAttention,
       attentionReason,
+    })
+  }
+
+  const pendingVerificationCount = studentSummaries.filter(
+    (s) => s.verificationStatus === 'submitted'
+  ).length
+
+  const pendingRecommendationsCount = store.recommendations.filter(
+    (r) => r.mentor_profile_id === mentorProfile!.id && r.status === 'pending'
+  ).length
+
+  const recentNotes = store.mentorNotes
+    .filter((n) => n.mentor_profile_id === mentorProfile!.id)
+    .sort((a, b) => new Date(b.created_at || b.note_date).getTime() - new Date(a.created_at || a.note_date).getTime())
+    .slice(0, 10)
+
+  // Attach student details to notes
+  recentNotes.forEach((n) => {
+    const sp = store.studentProfiles.find((s) => s.id === n.student_profile_id)
+    if (sp) {
+      const prof = store.profiles.find((p) => p.id === sp.profile_id)
+      n.student = { ...sp, profiles: prof }
     }
   })
 
-  // 8. Fetch mentor notifications
-  const { data: notifications } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('recipient_profile_id', mentorProfile.id)
-    .order('created_at', { ascending: false })
+  const studentsRequiringFollowUp = studentSummaries.filter((s) => s.needsAttention)
+
+  const notifications = store.notifications
+    .filter((n) => n.recipient_profile_id === mentorProfile!.id)
+    .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())
 
   return {
     mentorProfile,
     assignedStudentsCount: studentSummaries.length,
-    pendingVerificationCount: studentSummaries.filter(
-      (s) => s.verificationStatus === 'submitted'
-    ).length,
-    pendingRecommendationsCount: mentorRecommendations.filter(
-      (r: MentorRecommendation) => r.status === 'pending'
-    ).length,
-    recentNotes: mentorNotes.slice(0, 5),
-    studentsRequiringFollowUp: studentSummaries.filter((s) => s.needsAttention),
+    pendingVerificationCount,
+    pendingRecommendationsCount,
+    recentNotes,
+    studentsRequiringFollowUp,
     assignedStudents: studentSummaries,
-    notifications: (notifications as any) || [],
+    notifications,
   }
 }
 
 /**
- * Loads full detailed information for an assigned student.
- * If the student is not assigned to the calling mentor, throws an authorization error.
+ * Loads a student's full detail for the faculty mentor view
  */
-export async function getAssignedStudentDetail(studentProfileId: string): Promise<StudentFullDetail> {
-  const supabase = createClient()
+export async function getAssignedStudentDetail(
+  studentProfileId: string
+): Promise<StudentFullDetail> {
+  const store = getStore()
+  const studentProfile = store.studentProfiles.find((sp) => sp.id === studentProfileId)
 
-  // 1. Authenticate user
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    throw new Error('Authentication required.')
+  if (!studentProfile) {
+    throw new Error('Student profile not found.')
   }
 
-  // 2. Query mentor profile
-  const { data: mentorProfile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
+  const profile =
+    store.profiles.find((p) => p.id === studentProfile.profile_id) || {
+      id: studentProfile.profile_id,
+      user_id: studentProfile.profile_id,
+      role: 'mentee' as const,
+      full_name: 'Student',
+      email: '',
+      department: studentProfile.department || 'Information Science & Engineering',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
 
-  if (!mentorProfile) {
-    throw new Error('Mentor profile not found.')
-  }
+  const academicRecords = store.academicRecords
+    .filter((r) => r.student_profile_id === studentProfileId || r.student_id === studentProfileId)
+    .sort((a, b) => a.semester - b.semester)
 
-  // 3. Verify active assignment check
-  const { data: assignment, error: assignErr } = await supabase
-    .from('mentor_assignments')
-    .select('assigned_at')
-    .eq('mentor_profile_id', mentorProfile.id)
-    .eq('student_profile_id', studentProfileId)
-    .eq('is_active', true)
-    .maybeSingle()
+  const mentorNotes = store.mentorNotes
+    .filter((n) => n.student_profile_id === studentProfileId || n.student_id === studentProfileId)
+    .sort((a, b) => new Date(b.note_date).getTime() - new Date(a.note_date).getTime())
 
-  if (assignErr || !assignment) {
-    throw new Error('Access denied: You are not authorized to view this student profile. Only assigned faculty mentors may access student records.')
-  }
+  const recommendations = store.recommendations
+    .filter((r) => r.student_profile_id === studentProfileId || r.student_id === studentProfileId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-  // 4. Fetch student profile and related profile
-  const { data: studentProfile, error: spErr } = await supabase
-    .from('student_profiles')
-    .select('*, profiles(*)')
-    .eq('id', studentProfileId)
-    .single<StudentProfile & { profiles: Profile }>()
-
-  if (spErr || !studentProfile) {
-    throw new Error('Student profile record could not be retrieved.')
-  }
-
-  // 5. Fetch academic records
-  const { data: academicRecords } = await supabase
-    .from('academic_records')
-    .select('*')
-    .eq('student_profile_id', studentProfileId)
-    .order('semester', { ascending: true })
-    .order('course_code', { ascending: true })
-
-  // 6. Fetch mentor notes for this student (all author's notes)
-  const { data: notes } = await supabase
-    .from('mentor_notes')
-    .select('*')
-    .eq('student_profile_id', studentProfileId)
-    .eq('mentor_profile_id', mentorProfile.id)
-    .order('note_date', { ascending: false })
-
-  // 7. Fetch recommendations for this student
-  const { data: recommendations } = await supabase
-    .from('mentor_recommendations')
-    .select('*')
-    .eq('student_profile_id', studentProfileId)
-    .eq('mentor_profile_id', mentorProfile.id)
-    .order('created_at', { ascending: false })
+  const assignment = store.mentorAssignments.find(
+    (a) => a.student_profile_id === studentProfileId && a.is_active
+  )
 
   return {
     studentProfile,
-    profile: studentProfile.profiles || ({} as Profile),
-    academicRecords: (academicRecords as any) || [],
-    mentorNotes: (notes as any) || [],
-    recommendations: (recommendations as any) || [],
-    assignmentDate: assignment.assigned_at,
+    profile,
+    academicRecords,
+    mentorNotes,
+    recommendations,
+    assignmentDate: assignment?.assigned_at,
   }
 }
 
 /**
- * Creates a new mentoring session note with author and visibility controls
+ * Creates a new mentor guidance note
  */
 export async function createMentorNote(params: {
   studentProfileId: string
   content: string
-  noteDate: string
-  visibility: NoteVisibility
+  noteDate?: string
+  visibility?: NoteVisibility
 }) {
-  const supabase = createClient()
+  const store = getStore()
+  const currentUser = getCurrentUser()
+  const mentor =
+    store.profiles.find((p) => p.id === currentUser?.id || p.email === 'mentor@demo.com') ||
+    store.profiles.find((p) => p.role === 'mentor') ||
+    store.profiles[0]
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const newNote: MentorNote = {
+    id: `note-${Date.now()}`,
+    student_profile_id: params.studentProfileId,
+    student_id: params.studentProfileId,
+    mentor_profile_id: mentor.id,
+    mentor_id: mentor.id,
+    note_date: params.noteDate || new Date().toISOString().split('T')[0],
+    content: params.content.trim(),
+    visibility: params.visibility || 'shared_with_mentee',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
 
-  if (!user) throw new Error('Authentication required.')
+  store.mentorNotes.unshift(newNote)
 
-  const { data: mentorProfile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
+  // Notify student if shared
+  if (newNote.visibility === 'shared_with_mentee') {
+    const sp = store.studentProfiles.find((s) => s.id === params.studentProfileId)
+    if (sp) {
+      store.notifications.push({
+        id: `notif-${Date.now()}`,
+        recipient_profile_id: sp.profile_id,
+        title: 'New Mentoring Note',
+        message: `${mentor.full_name} added guidance to your student record.`,
+        type: 'info',
+        related_entity_type: 'mentor_notes',
+        related_entity_id: newNote.id,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      })
+    }
+  }
 
-  if (!mentorProfile) throw new Error('Mentor profile not found.')
-
-  const { data, error } = await supabase
-    .from('mentor_notes')
-    .insert({
+  // Audit log
+  store.auditLogs.push({
+    id: `aud-${Date.now()}`,
+    actor_profile_id: mentor.id,
+    action: 'CREATED_MENTOR_NOTE',
+    target_type: 'mentor_notes',
+    target_id: newNote.id,
+    metadata: {
       student_profile_id: params.studentProfileId,
-      mentor_profile_id: mentorProfile.id,
-      content: params.content.trim(),
-      note_date: params.noteDate,
-      visibility: params.visibility,
-    })
-    .select('*')
-    .single()
+      visibility: newNote.visibility,
+    },
+    created_at: new Date().toISOString(),
+  })
 
-  if (error) throw new Error(error.message)
-  return data
+  saveStore(store)
+  return newNote
 }
 
 /**
@@ -369,164 +310,142 @@ export async function createMentorNote(params: {
 export async function updateMentorNote(params: {
   noteId: string
   content: string
-  noteDate: string
-  visibility: NoteVisibility
+  noteDate?: string
+  visibility?: NoteVisibility
 }) {
-  const supabase = createClient()
+  const store = getStore()
+  const index = store.mentorNotes.findIndex((n) => n.id === params.noteId)
 
-  const { data, error } = await supabase
-    .from('mentor_notes')
-    .update({
-      content: params.content.trim(),
-      note_date: params.noteDate,
-      visibility: params.visibility,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', params.noteId)
-    .select('*')
-    .single()
+  if (index < 0) {
+    throw new Error('Mentor note not found.')
+  }
 
-  if (error) throw new Error(error.message)
-  return data
+  store.mentorNotes[index] = {
+    ...store.mentorNotes[index],
+    content: params.content.trim(),
+    note_date: params.noteDate || store.mentorNotes[index].note_date,
+    visibility: params.visibility || store.mentorNotes[index].visibility,
+    updated_at: new Date().toISOString(),
+  }
+
+  saveStore(store)
+  return store.mentorNotes[index]
 }
 
 /**
  * Deletes a mentor note
  */
 export async function deleteMentorNote(noteId: string) {
-  const supabase = createClient()
-  const { error } = await supabase.from('mentor_notes').delete().eq('id', noteId)
-  if (error) throw new Error(error.message)
+  const store = getStore()
+  store.mentorNotes = store.mentorNotes.filter((n) => n.id !== noteId)
+  saveStore(store)
   return true
 }
 
 /**
- * Creates and submits a formal recommendation to the HOD
+ * Submits a new mentor recommendation to HOD
  */
 export async function createMentorRecommendation(params: {
   studentProfileId: string
   category: RecommendationCategory
   details: string
 }) {
-  const supabase = createClient()
+  const store = getStore()
+  const currentUser = getCurrentUser()
+  const mentor =
+    store.profiles.find((p) => p.id === currentUser?.id || p.email === 'mentor@demo.com') ||
+    store.profiles.find((p) => p.role === 'mentor') ||
+    store.profiles[0]
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const newRec: MentorRecommendation = {
+    id: `rec-${Date.now()}`,
+    student_profile_id: params.studentProfileId,
+    student_id: params.studentProfileId,
+    mentor_profile_id: mentor.id,
+    mentor_id: mentor.id,
+    category: params.category,
+    details: params.details.trim(),
+    content: params.details.trim(),
+    status: 'pending',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
 
-  if (!user) throw new Error('Authentication required.')
+  store.recommendations.unshift(newRec)
 
-  const { data: mentorProfile } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .eq('user_id', user.id)
-    .single()
+  // Notify HOD
+  const sp = store.studentProfiles.find((s) => s.id === params.studentProfileId)
+  const studentUser = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
+  const studentName = studentUser?.full_name || 'Student'
 
-  if (!mentorProfile) throw new Error('Mentor profile not found.')
+  const hod = store.profiles.find(
+    (p) => p.role === 'administrator' || (p.role as string) === 'hod'
+  )
+  if (hod) {
+    store.notifications.push({
+      id: `notif-${Date.now()}`,
+      recipient_profile_id: hod.id,
+      title: 'Mentor Recommendation Submitted',
+      message: `${mentor.full_name} submitted a ${params.category} recommendation for ${studentName}.`,
+      type: 'warning',
+      related_entity_type: 'mentor_recommendations',
+      related_entity_id: newRec.id,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    })
+  }
 
-  const { data, error } = await supabase
-    .from('mentor_recommendations')
-    .insert({
-      student_profile_id: params.studentProfileId,
-      mentor_profile_id: mentorProfile.id,
+  // Audit log
+  store.auditLogs.push({
+    id: `aud-${Date.now()}`,
+    actor_profile_id: mentor.id,
+    action: 'SUBMITTED_RECOMMENDATION',
+    target_type: 'mentor_recommendations',
+    target_id: newRec.id,
+    metadata: {
       category: params.category,
-      details: params.details.trim(),
-      status: 'pending',
-    })
-    .select('*')
-    .single()
+      student_profile_id: params.studentProfileId,
+    },
+    created_at: new Date().toISOString(),
+  })
 
-  if (error) throw new Error(error.message)
-
-  // Notify Department HOD
-  try {
-    const { data: student } = await supabase
-      .from('student_profiles')
-      .select('usn, department, profiles(full_name)')
-      .eq('id', params.studentProfileId)
-      .single()
-
-    if (student) {
-      const studentName = (student as any).profiles?.full_name || 'Student'
-      const { data: hods } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('department', student.department)
-        .eq('role', 'administrator')
-
-      if (hods && hods.length > 0) {
-        for (const hod of hods) {
-          await supabase.from('notifications').insert({
-            recipient_profile_id: hod.id,
-            title: `New Recommendation — ${student.usn}`,
-            message: `${mentorProfile.full_name} submitted a ${params.category} recommendation for ${studentName} (${student.usn}).`,
-            type: 'info',
-            related_entity_type: 'mentor_recommendations',
-            related_entity_id: data.id,
-          })
-        }
-      }
-    }
-  } catch (notifErr) {
-    console.warn('Could not notify HOD of recommendation:', notifErr)
-  }
-
-  // Append audit log
-  try {
-    await supabase.from('audit_logs').insert({
-      actor_profile_id: mentorProfile.id,
-      action: 'SUBMITTED_RECOMMENDATION',
-      target_type: 'mentor_recommendations',
-      target_id: data.id,
-      metadata: {
-        category: params.category,
-        student_profile_id: params.studentProfileId,
-      },
-    })
-  } catch (auditErr) {
-    console.warn('Could not append audit log:', auditErr)
-  }
-
-  return data
+  saveStore(store)
+  return newRec
 }
 
 /**
- * Updates a pending recommendation
+ * Updates a mentor recommendation
  */
 export async function updateMentorRecommendation(params: {
   recommendationId: string
   category: RecommendationCategory
   details: string
 }) {
-  const supabase = createClient()
+  const store = getStore()
+  const index = store.recommendations.findIndex((r) => r.id === params.recommendationId)
 
-  const { data, error } = await supabase
-    .from('mentor_recommendations')
-    .update({
-      category: params.category,
-      details: params.details.trim(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', params.recommendationId)
-    .eq('status', 'pending')
-    .select('*')
-    .single()
+  if (index < 0) {
+    throw new Error('Recommendation not found.')
+  }
 
-  if (error) throw new Error(error.message)
-  return data
+  store.recommendations[index] = {
+    ...store.recommendations[index],
+    category: params.category,
+    details: params.details.trim(),
+    content: params.details.trim(),
+    updated_at: new Date().toISOString(),
+  }
+
+  saveStore(store)
+  return store.recommendations[index]
 }
 
 /**
- * Deletes a pending recommendation
+ * Deletes a mentor recommendation
  */
 export async function deleteMentorRecommendation(recommendationId: string) {
-  const supabase = createClient()
-  const { error } = await supabase
-    .from('mentor_recommendations')
-    .delete()
-    .eq('id', recommendationId)
-    .eq('status', 'pending')
-
-  if (error) throw new Error(error.message)
+  const store = getStore()
+  store.recommendations = store.recommendations.filter((r) => r.id !== recommendationId)
+  saveStore(store)
   return true
 }

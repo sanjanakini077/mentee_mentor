@@ -1,53 +1,76 @@
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+'use client'
+
+import React, { useEffect, useState } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
+import { getCurrentUser, getStore, setCurrentUser } from '@/lib/storage/demoStore'
 import type { Profile, Role } from '@/types'
 
-export default async function DashboardLayout({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
+  const router = useRouter()
+  const pathname = usePathname()
+  const [user, setUser] = useState<Profile | null>(null)
+  const [mounted, setMounted] = useState(false)
 
-  // Authenticate user with Supabase Auth
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  useEffect(() => {
+    setMounted(true)
+    let currentUser = getCurrentUser()
 
-  if (!user) {
-    redirect('/auth/sign-in')
-  }
+    // If no currentUser yet, infer appropriate demo account from route
+    if (!currentUser) {
+      const store = getStore()
+      if (pathname.startsWith('/admin') || pathname.startsWith('/hod')) {
+        currentUser = store.profiles.find((p) => p.email === 'hod@demo.com') || null
+      } else if (pathname.startsWith('/mentor')) {
+        currentUser = store.profiles.find((p) => p.email === 'mentor@demo.com') || null
+      } else {
+        currentUser = store.profiles.find((p) => p.email === 'student@demo.com') || null
+      }
 
-  // Retrieve user's verified profile record
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('user_id', user.id)
-    .single<Profile>()
+      if (currentUser) {
+        setCurrentUser(currentUser)
+      }
+    }
 
-  // If user exists in Auth but has no profile row yet, construct a safe fallback profile
-  const userProfile: Profile = profile || {
-    id: user.id,
-    user_id: user.id,
-    role: (user.user_metadata?.role as Role) || 'mentee',
-    full_name:
-      user.user_metadata?.full_name ||
-      user.email?.split('@')[0] ||
-      'Authorized User',
-    email: user.email || '',
-    department: user.user_metadata?.department || 'General Engineering',
-    created_at: user.created_at,
-    updated_at: user.created_at,
+    if (!currentUser) {
+      router.push('/auth/sign-in')
+      return
+    }
+
+    setUser(currentUser)
+
+    const handleChange = () => {
+      const updated = getCurrentUser()
+      if (updated) setUser(updated)
+    }
+
+    window.addEventListener('mms-store-changed', handleChange)
+    return () => window.removeEventListener('mms-store-changed', handleChange)
+  }, [router, pathname])
+
+  // Prevent hydration mismatch during SSR
+  if (!mounted || !user) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50 text-slate-500 font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+          <p className="text-xs text-slate-400">Loading Portal...</p>
+        </div>
+      </div>
+    )
   }
 
   const normalizedRole: Role =
-    userProfile.role === 'hod' || userProfile.role === 'administrator'
+    user.role === 'hod' || user.role === 'administrator'
       ? 'administrator'
-      : userProfile.role
+      : user.role
 
   return (
-    <AppShell role={normalizedRole} user={userProfile} isPreview={false}>
+    <AppShell role={normalizedRole} user={user} isPreview={false}>
       {children}
     </AppShell>
   )

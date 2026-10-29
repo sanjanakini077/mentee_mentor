@@ -33,7 +33,7 @@ import {
   reviewMentorRecommendation,
   type AdminDashboardData,
 } from '@/lib/services/adminService'
-import { createClient } from '@/lib/supabase/client'
+import { getStore } from '@/lib/storage/demoStore'
 import { formatDate } from '@/lib/utils'
 import type { AcademicRecord } from '@/types'
 
@@ -69,51 +69,24 @@ export default function AdminReviewWorkspacePage() {
         const d = await getAdminDashboardData()
         setData(d)
 
-        const supabase = createClient()
-        const dept = d.adminProfile.department
+        const store = getStore()
+        const stdList = store.studentProfiles.map((s) => ({
+          ...s,
+          profiles: store.profiles.find((p) => p.id === s.profile_id),
+        }))
 
-        // Fetch all student submissions (both pending and recently decided)
-        const { data: stdList } = await supabase
-          .from('student_profiles')
-          .select(`
-          *,
-          profiles (
-            id,
-            full_name,
-            email,
-            phone_number
-          )
-        `)
-          .eq('department', dept)
-          .order('updated_at', { ascending: false })
+        setAllSubmissions(stdList)
 
-        setAllSubmissions(stdList || [])
-
-        // Fetch all recommendations
-        const { data: recList } = await supabase
-          .from('mentor_recommendations')
-          .select(`
-          *,
-          student:student_profiles (
-            id,
-            usn,
-            semester,
-            department,
-            profiles (
-              full_name
-            )
-          ),
-          mentor:profiles!mentor_recommendations_mentor_profile_id_fkey (
-            id,
-            full_name,
-            email
-          )
-        `)
-          .order('created_at', { ascending: false })
-
-        const deptRecs = (recList || []).filter(
-          (r: any) => r.student?.department === dept
-        )
+        const deptRecs = store.recommendations.map((r) => {
+          const sp = store.studentProfiles.find((s) => s.id === r.student_profile_id)
+          const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
+          const mentorProf = store.profiles.find((p) => p.id === r.mentor_profile_id)
+          return {
+            ...r,
+            student: sp ? { ...sp, profiles: stProf } : null,
+            mentor: mentorProf || null,
+          }
+        })
         setAllRecommendations(deptRecs)
       } catch (err: any) {
         toastError(err?.message || 'Failed to load review workspace.')
@@ -124,6 +97,8 @@ export default function AdminReviewWorkspacePage() {
 
     useEffect(() => {
       loadData()
+      window.addEventListener('mms-store-changed', loadData)
+      return () => window.removeEventListener('mms-store-changed', loadData)
 }, [loadData])
 
 // Open Inspection & Decision Dialog
@@ -149,14 +124,12 @@ const openDecisionDialog = async (item: {
   if (item.type === 'student') {
     setLoadingAcademics(true)
     try {
-      const supabase = createClient()
-      const { data: records } = await supabase
-        .from('academic_records')
-        .select('*')
-        .eq('student_profile_id', item.id)
-        .order('semester', { ascending: true })
+      const store = getStore()
+      const records = store.academicRecords
+        .filter((r) => r.student_profile_id === item.id || r.student_id === item.id)
+        .sort((a, b) => a.semester - b.semester)
 
-      setInspectAcademics((records as any) || [])
+      setInspectAcademics(records)
     } catch (err) {
       console.warn('Could not load academic records for review:', err)
     } finally {
