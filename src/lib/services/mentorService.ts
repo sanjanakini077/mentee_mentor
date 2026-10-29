@@ -437,6 +437,56 @@ export async function createMentorRecommendation(params: {
     .single()
 
   if (error) throw new Error(error.message)
+
+  // Notify Department HOD
+  try {
+    const { data: student } = await supabase
+      .from('student_profiles')
+      .select('usn, department, profiles(full_name)')
+      .eq('id', params.studentProfileId)
+      .single()
+
+    if (student) {
+      const studentName = (student as any).profiles?.full_name || 'Student'
+      const { data: hods } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('department', student.department)
+        .eq('role', 'administrator')
+
+      if (hods && hods.length > 0) {
+        for (const hod of hods) {
+          await supabase.from('notifications').insert({
+            recipient_profile_id: hod.id,
+            title: `New Recommendation — ${student.usn}`,
+            message: `${mentorProfile.full_name} submitted a ${params.category} recommendation for ${studentName} (${student.usn}).`,
+            type: 'info',
+            related_entity_type: 'mentor_recommendations',
+            related_entity_id: data.id,
+          })
+        }
+      }
+    }
+  } catch (notifErr) {
+    console.warn('Could not notify HOD of recommendation:', notifErr)
+  }
+
+  // Append audit log
+  try {
+    await supabase.from('audit_logs').insert({
+      actor_profile_id: mentorProfile.id,
+      action: 'SUBMITTED_RECOMMENDATION',
+      target_type: 'mentor_recommendations',
+      target_id: data.id,
+      metadata: {
+        category: params.category,
+        student_profile_id: params.studentProfileId,
+      },
+    })
+  } catch (auditErr) {
+    console.warn('Could not append audit log:', auditErr)
+  }
+
   return data
 }
 

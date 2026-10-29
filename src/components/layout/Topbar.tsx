@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Bell,
   Menu,
@@ -10,12 +11,19 @@ import {
   LogOut,
   CheckCircle,
   Clock,
-  Sparkles,
+  ExternalLink,
+  AlertTriangle,
+  AlertCircle,
+  Info,
 } from 'lucide-react'
-import type { Profile } from '@/types'
-import { PREVIEW_NOTIFICATIONS } from '@/lib/preview-data'
+import type { Profile, AppNotification } from '@/types'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import {
+  getProfileNotifications,
+  markNotificationAsRead,
+  markAllProfileNotificationsAsRead,
+} from '@/lib/services/notificationService'
+import { formatDateTime } from '@/lib/utils'
 
 interface TopbarProps {
   user: Profile
@@ -27,8 +35,24 @@ export function Topbar({ user, onOpenMobileMenu, pageTitle }: TopbarProps) {
   const router = useRouter()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
   const notifRef = useRef<HTMLDivElement>(null)
   const profileRef = useRef<HTMLDivElement>(null)
+
+  // Load real notifications from Supabase
+  const loadNotifications = async () => {
+    if (user?.id) {
+      const list = await getProfileNotifications(user.id)
+      setNotifications(list)
+    }
+  }
+
+  useEffect(() => {
+    loadNotifications()
+    // Poll notifications every 30s as a gentle background refresh
+    const interval = setInterval(loadNotifications, 30000)
+    return () => clearInterval(interval)
+  }, [user?.id])
 
   // Close menus on outside click
   useEffect(() => {
@@ -61,7 +85,58 @@ export function Topbar({ user, onOpenMobileMenu, pageTitle }: TopbarProps) {
     }
   }
 
-  const unreadCount = PREVIEW_NOTIFICATIONS.filter((n) => !n.read).length
+  const unreadCount = notifications.filter((n) => !n.is_read && !n.read).length
+
+  const handleNotificationClick = async (notif: AppNotification) => {
+    await markNotificationAsRead(notif.id)
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notif.id ? { ...n, is_read: true, read: true } : n))
+    )
+    setNotificationsOpen(false)
+
+    // Route dynamically based on entity and user role
+    const role = user.role
+    if (notif.related_entity_type === 'student_profiles') {
+      if (role === 'administrator' || (role as string) === 'hod') {
+        router.push('/admin/reviews')
+      } else if (role === 'mentor') {
+        router.push(notif.related_entity_id ? `/mentor/students/${notif.related_entity_id}` : '/mentor/students')
+      } else {
+        router.push('/mentee/verification')
+      }
+    } else if (notif.related_entity_type === 'mentor_recommendations') {
+      if (role === 'administrator' || (role as string) === 'hod') {
+        router.push('/admin/recommendations')
+      } else if (role === 'mentor') {
+        router.push('/mentor/recommendations')
+      } else {
+        router.push('/mentee/mentor')
+      }
+    } else if (notif.related_entity_type === 'mentor_assignments') {
+      if (role === 'mentor') {
+        router.push('/mentor/students')
+      } else if (role === 'mentee') {
+        router.push('/mentee/mentor')
+      } else {
+        router.push('/admin/assignments')
+      }
+    }
+  }
+
+  const handleMarkAllRead = async () => {
+    if (!user?.id) return
+    await markAllProfileNotificationsAsRead(user.id)
+    setNotifications((prev) =>
+      prev.map((n) => ({ ...n, is_read: true, read: true }))
+    )
+  }
+
+  const notificationsUrl =
+    user.role === 'administrator' || (user.role as string) === 'hod'
+      ? '/admin/notifications'
+      : user.role === 'mentor'
+      ? '/mentor/notifications'
+      : '/mentee/notifications'
 
   return (
     <header className="h-14 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 z-20">
@@ -106,58 +181,85 @@ export function Topbar({ user, onOpenMobileMenu, pageTitle }: TopbarProps) {
           >
             <Bell size={16} />
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent ring-2 ring-white" />
+              <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full bg-accent text-[9px] font-bold text-white flex items-center justify-center ring-2 ring-white">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
             )}
           </button>
 
           {notificationsOpen && (
-            <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-md shadow-lg py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+            <div className="absolute right-0 mt-2 w-84 bg-white border border-slate-200 rounded-md shadow-lg py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
               <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between">
-                <p className="text-xs font-semibold text-slate-800">
-                  Notifications
+                <p className="text-xs font-bold text-slate-800">
+                  Institutional Alerts
                 </p>
-                <span className="text-[10px] bg-blue-50 text-accent font-medium px-1.5 py-0.5 rounded">
+                <span className="text-[10px] bg-blue-50 text-accent font-semibold px-2 py-0.5 rounded">
                   {unreadCount} unread
                 </span>
               </div>
+
               <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
-                {PREVIEW_NOTIFICATIONS.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`p-3 text-xs hover:bg-slate-50 transition-colors ${
-                      !n.read ? 'bg-blue-50/30' : ''
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <div className="mt-0.5 shrink-0">
-                        {n.type === 'success' ? (
-                          <CheckCircle size={13} className="text-emerald-600" />
-                        ) : (
-                          <Clock size={13} className="text-slate-400" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-800 text-[11px]">
-                          {n.title}
-                        </p>
-                        <p className="text-slate-500 text-[11px] mt-0.5 leading-snug">
-                          {n.message}
-                        </p>
-                        <span className="text-[10px] text-slate-400 mt-1 block">
-                          {n.timestamp}
-                        </span>
-                      </div>
-                    </div>
+                {notifications.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400">
+                    No active notifications.
                   </div>
-                ))}
+                ) : (
+                  notifications.slice(0, 6).map((n) => {
+                    const isUnread = !n.is_read && !n.read
+                    return (
+                      <div
+                        key={n.id}
+                        onClick={() => handleNotificationClick(n)}
+                        className={`p-3 text-xs hover:bg-slate-50 transition-colors cursor-pointer ${
+                          isUnread ? 'bg-blue-50/40' : ''
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div className="mt-0.5 shrink-0">
+                            {n.type === 'success' ? (
+                              <CheckCircle size={13} className="text-emerald-600" />
+                            ) : n.type === 'warning' ? (
+                              <AlertTriangle size={13} className="text-amber-600" />
+                            ) : n.type === 'danger' ? (
+                              <AlertCircle size={13} className="text-rose-600" />
+                            ) : (
+                              <Info size={13} className="text-blue-600" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-slate-800 text-[11px] truncate">
+                              {n.title}
+                            </p>
+                            <p className="text-slate-500 text-[11px] mt-0.5 leading-snug line-clamp-2">
+                              {n.message}
+                            </p>
+                            <span className="text-[10px] text-slate-400 mt-1 block font-mono">
+                              {formatDateTime(n.created_at || '')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
               </div>
-              <div className="px-3 pt-2 pb-1 border-t border-slate-100 text-center">
-                <button
+
+              <div className="px-3 pt-2 pb-1 border-t border-slate-100 flex items-center justify-between text-xs">
+                {unreadCount > 0 ? (
+                  <button
+                    onClick={handleMarkAllRead}
+                    className="text-[11px] font-medium text-slate-600 hover:text-slate-900"
+                  >
+                    Mark all read
+                  </button>
+                ) : <span />}
+                <Link
+                  href={notificationsUrl}
                   onClick={() => setNotificationsOpen(false)}
-                  className="text-[11px] font-medium text-accent hover:underline"
+                  className="text-[11px] font-semibold text-accent hover:underline flex items-center gap-1"
                 >
-                  Mark all as read
-                </button>
+                  View All <ExternalLink size={10} />
+                </Link>
               </div>
             </div>
           )}
@@ -180,21 +282,19 @@ export function Topbar({ user, onOpenMobileMenu, pageTitle }: TopbarProps) {
             <span className="hidden sm:inline-block text-xs font-semibold text-slate-700 max-w-[120px] truncate">
               {user.full_name}
             </span>
-            <ChevronDown size={13} className="text-slate-400" />
+            <ChevronDown size={14} className="text-slate-400" />
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-200 rounded-md shadow-lg py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="px-3.5 py-2.5 border-b border-slate-100">
-                <p className="text-xs font-semibold text-slate-800 truncate">
-                  {user.full_name}
-                </p>
-                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+            <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-200 rounded-md shadow-lg py-1 z-50 animate-in fade-in zoom-in-95 duration-100 text-xs">
+              <div className="px-3 py-2 border-b border-slate-100">
+                <p className="font-semibold text-slate-900">{user.full_name}</p>
+                <p className="text-[11px] text-slate-500 font-mono truncate">
                   {user.email}
                 </p>
-                <div className="mt-1.5 inline-block text-[10px] font-semibold text-accent bg-blue-50 px-1.5 py-0.5 rounded uppercase">
+                <span className="inline-block mt-1 text-[10px] uppercase font-bold text-accent bg-blue-50 px-1.5 py-0.5 rounded">
                   {user.role}
-                </div>
+                </span>
               </div>
 
               <div className="py-1">
@@ -203,33 +303,25 @@ export function Topbar({ user, onOpenMobileMenu, pageTitle }: TopbarProps) {
                     user.role === 'mentee'
                       ? '/mentee/profile'
                       : user.role === 'mentor'
-                      ? '/mentor'
-                      : '/hod'
+                      ? '/mentor/students'
+                      : '/admin/students'
                   }
                   onClick={() => setProfileOpen(false)}
-                  className="flex items-center gap-2 px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-50"
                 >
                   <UserIcon size={14} className="text-slate-400" />
-                  <span>My Profile Details</span>
-                </Link>
-                <Link
-                  href="/auth/sign-in"
-                  onClick={() => setProfileOpen(false)}
-                  className="flex items-center gap-2 px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
-                >
-                  <Sparkles size={14} className="text-slate-400" />
-                  <span>Switch Role / Sign In</span>
+                  <span>My Profile & Settings</span>
                 </Link>
               </div>
 
-              <div className="pt-1 border-t border-slate-100">
+              <div className="border-t border-slate-100 pt-1">
                 <button
                   type="button"
                   onClick={handleSignOut}
-                  className="w-full flex items-center gap-2 px-3.5 py-2 text-xs text-rose-600 hover:bg-rose-50 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-rose-600 hover:bg-rose-50 transition-colors text-left font-medium"
                 >
                   <LogOut size={14} />
-                  <span>Sign Out</span>
+                  <span>Sign Out of ERP</span>
                 </button>
               </div>
             </div>

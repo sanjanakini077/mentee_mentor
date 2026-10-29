@@ -322,7 +322,33 @@ export async function reviewMentorRecommendation(params: {
         related_entity_id: params.recommendationId,
       })
     } catch (notifErr) {
-      console.warn('Notification write error:', notifErr)
+      console.warn('Notification write error for mentor:', notifErr)
+    }
+  }
+
+  // Notify student if approved
+  if (params.decision === 'approved' && updatedRec?.student_profile_id) {
+    try {
+      const { data: stProfile } = await supabase
+        .from('student_profiles')
+        .select('profile_id')
+        .eq('id', updatedRec.student_profile_id)
+        .single()
+
+      if (stProfile?.profile_id) {
+        await supabase.from('notifications').insert({
+          recipient_profile_id: stProfile.profile_id,
+          title: 'Faculty Recommendation Endorsed',
+          message:
+            params.reviewComment ||
+            `A faculty recommendation for your academic portfolio has been approved and endorsed by the Department Head.`,
+          type: 'success',
+          related_entity_type: 'mentor_recommendations',
+          related_entity_id: params.recommendationId,
+        })
+      }
+    } catch (stNotifErr) {
+      console.warn('Notification write error for student:', stNotifErr)
     }
   }
 

@@ -54,6 +54,7 @@ const navItems: Record<Role, NavItem[]> = {
     { label: 'Mentor Allocation', href: '/admin/assignments', icon: ClipboardList },
     { label: 'Recommendations', href: '/admin/recommendations', icon: ThumbsUp },
     { label: 'Audit Trail', href: '/admin/audit-log', icon: ScrollText },
+    { label: 'Notifications', href: '/admin/notifications', icon: Bell },
   ],
   hod: [
     { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
@@ -62,6 +63,7 @@ const navItems: Record<Role, NavItem[]> = {
     { label: 'Mentor Allocation', href: '/admin/assignments', icon: ClipboardList },
     { label: 'Recommendations', href: '/admin/recommendations', icon: ThumbsUp },
     { label: 'Audit Trail', href: '/admin/audit-log', icon: ScrollText },
+    { label: 'Notifications', href: '/admin/notifications', icon: Bell },
   ],
 }
 

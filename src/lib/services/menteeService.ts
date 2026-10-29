@@ -387,7 +387,7 @@ export async function submitVerificationForReview(studentProfileId: string) {
   // 1. Fetch current status and profile info
   const { data: sp, error: fetchErr } = await supabase
     .from('student_profiles')
-    .select('id, verification_status, profile_id')
+    .select('id, verification_status, profile_id, usn, department, profiles(full_name)')
     .eq('id', studentProfileId)
     .single()
 
@@ -416,6 +416,8 @@ export async function submitVerificationForReview(studentProfileId: string) {
     throw new Error(`Verification submission failed: ${updateErr.message}`)
   }
 
+  const studentName = (sp as any).profiles?.full_name || 'Student'
+
   // 3. Create a confirmation notification for the mentee
   try {
     await supabase.from('notifications').insert({
@@ -427,7 +429,71 @@ export async function submitVerificationForReview(studentProfileId: string) {
       related_entity_id: studentProfileId,
     })
   } catch (notifErr) {
-    console.warn('Could not create notification log:', notifErr)
+    console.warn('Could not create student notification log:', notifErr)
+  }
+
+  // 4. Notify the relevant Department Administrator / HOD
+  try {
+    const { data: hods } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('department', sp.department)
+      .eq('role', 'administrator')
+
+    if (hods && hods.length > 0) {
+      for (const hod of hods) {
+        await supabase.from('notifications').insert({
+          recipient_profile_id: hod.id,
+          title: `New Student Submission — ${sp.usn}`,
+          message: `${studentName} (${sp.usn}) has submitted their profile and coursework for departmental verification.`,
+          type: 'info',
+          related_entity_type: 'student_profiles',
+          related_entity_id: studentProfileId,
+        })
+      }
+    }
+  } catch (hodNotifErr) {
+    console.warn('Could not notify HOD of submission:', hodNotifErr)
+  }
+
+  // 5. Notify the student's assigned faculty mentor if active
+  try {
+    const { data: assignment } = await supabase
+      .from('mentor_assignments')
+      .select('mentor_profile_id')
+      .eq('student_profile_id', studentProfileId)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (assignment?.mentor_profile_id) {
+      await supabase.from('notifications').insert({
+        recipient_profile_id: assignment.mentor_profile_id,
+        title: `Mentee Profile Submitted — ${studentName}`,
+        message: `${studentName} (${sp.usn}) submitted profile information for verification review.`,
+        type: 'info',
+        related_entity_type: 'student_profiles',
+        related_entity_id: studentProfileId,
+      })
+    }
+  } catch (mentorNotifErr) {
+    console.warn('Could not notify mentor of submission:', mentorNotifErr)
+  }
+
+  // 6. Record in immutable audit log
+  try {
+    await supabase.from('audit_logs').insert({
+      actor_profile_id: sp.profile_id,
+      action: 'SUBMITTED_STUDENT_PROFILE',
+      target_type: 'student_profiles',
+      target_id: studentProfileId,
+      metadata: {
+        usn: sp.usn,
+        student_name: studentName,
+        department: sp.department,
+      },
+    })
+  } catch (auditErr) {
+    console.warn('Audit log write error:', auditErr)
   }
 
   return true
