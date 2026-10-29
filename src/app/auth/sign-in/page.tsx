@@ -3,17 +3,27 @@
 import React, { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { GraduationCap, Mail, Lock, AlertCircle } from 'lucide-react'
+import {
+  GraduationCap,
+  Mail,
+  Lock,
+  AlertCircle,
+  UserCheck,
+  ShieldCheck,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
+
+type ActivePortalRole = 'student' | 'faculty' | 'hod'
 
 function SignInForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectToParam = searchParams.get('redirectTo')
 
+  const [selectedRole, setSelectedRole] = useState<ActivePortalRole>('student')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -60,7 +70,6 @@ function SignInForm() {
         redirectToParam.startsWith('/') &&
         !redirectToParam.startsWith('//')
       ) {
-        // Ensure redirect matches their role portal or general page
         const role = profile.role
         const isAllowedPath =
           (role === 'mentee' && redirectToParam.startsWith('/mentee')) ||
@@ -96,6 +105,27 @@ function SignInForm() {
     }
   }
 
+  const roleMeta = {
+    student: {
+      title: 'Student Sign-In',
+      buttonText: 'Sign In as Student',
+      placeholder: 'student@college.edu',
+      badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
+    },
+    faculty: {
+      title: 'Faculty Mentor Sign-In',
+      buttonText: 'Sign In as Faculty Mentor',
+      placeholder: 'faculty@college.edu',
+      badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    },
+    hod: {
+      title: 'Department HOD Sign-In',
+      buttonText: 'Sign In as Department HOD',
+      placeholder: 'hod.ise@nmamit.in',
+      badgeClass: 'bg-purple-50 text-purple-700 border-purple-200',
+    },
+  }[selectedRole]
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
@@ -112,6 +142,66 @@ function SignInForm() {
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 shadow-xs border border-slate-200 rounded-lg sm:px-10">
+          {/* Role Selection Tabs */}
+          <div className="mb-6">
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-lg text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRole('student')
+                  setError(null)
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md transition-all ${
+                  selectedRole === 'student'
+                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <GraduationCap size={14} className="text-blue-600" />
+                <span>Student</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRole('faculty')
+                  setError(null)
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md transition-all ${
+                  selectedRole === 'faculty'
+                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <UserCheck size={14} className="text-emerald-600" />
+                <span>Faculty</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRole('hod')
+                  setError(null)
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md transition-all ${
+                  selectedRole === 'hod'
+                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ShieldCheck size={14} className="text-purple-600" />
+                <span>HOD</span>
+              </button>
+            </div>
+
+            <div className="mt-2.5 text-center">
+              <span className="text-[11px] font-medium text-slate-500">
+                Active Portal:{' '}
+                <strong className="text-slate-800">{roleMeta.title}</strong>
+              </span>
+            </div>
+          </div>
+
           <form className="space-y-4" onSubmit={handleSignIn}>
             <div>
               <Label htmlFor="email" required>
@@ -124,7 +214,7 @@ function SignInForm() {
                   type="email"
                   autoComplete="email"
                   required
-                  placeholder="name@college.edu"
+                  placeholder={roleMeta.placeholder}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   leftIcon={<Mail size={16} />}
@@ -173,12 +263,48 @@ function SignInForm() {
               isLoading={isLoading}
               className="w-full"
             >
-              Sign In to ERP
+              {roleMeta.buttonText}
             </Button>
           </form>
 
+          {/* Quick Login Buttons for Faculty & HOD */}
+          <div className="mt-5 pt-4 border-t border-slate-100">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2.5 text-center">
+              Quick Role Shortcuts
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRole('faculty')
+                  setEmail('mentor.cse@college.edu')
+                  setPassword('College@2024!')
+                  setError(null)
+                }}
+                className="flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 text-slate-700 transition-colors"
+              >
+                <UserCheck size={14} className="text-emerald-600" />
+                <span>Faculty Login</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRole('hod')
+                  setEmail('hod.ise@nmamit.in')
+                  setPassword('College@2024!')
+                  setError(null)
+                }}
+                className="flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 hover:bg-purple-50 hover:border-purple-200 text-slate-700 transition-colors"
+              >
+                <ShieldCheck size={14} className="text-purple-600" />
+                <span>HOD Login</span>
+              </button>
+            </div>
+          </div>
+
           {/* Student Registration Link */}
-          <div className="mt-5 pt-4 border-t border-slate-100 text-center space-y-2">
+          <div className="mt-5 pt-4 border-t border-slate-100 text-center space-y-1.5">
             <p className="text-xs text-slate-500">
               New student?{' '}
               <Link
