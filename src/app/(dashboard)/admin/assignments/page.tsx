@@ -1,190 +1,504 @@
 'use client'
 
-import React, { useState } from 'react'
-import { Plus } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import {
+  Plus,
+  Users,
+  ClipboardList,
+  UserCheck,
+  History,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink,
+} from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card } from '@/components/ui/Card'
+import { DataTable, type ColumnDef } from '@/components/ui/DataTable'
+import { StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { FormField } from '@/components/ui/FormField'
 import { Select } from '@/components/ui/Select'
+import { Textarea } from '@/components/ui/Textarea'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
-import { PREVIEW_ASSIGNED_STUDENTS } from '@/lib/preview-data'
+import { assignMentorToStudent } from '@/lib/services/adminService'
+import { createClient } from '@/lib/supabase/client'
+import { formatDate } from '@/lib/utils'
+import type { Profile } from '@/types'
 
 export default function AdminAssignmentsPage() {
-  const { success } = useToast()
-  const [students, setStudents] = useState(PREVIEW_ASSIGNED_STUDENTS)
+  const { success, error: toastError } = useToast()
+
+  const [mentors, setMentors] = useState<Profile[]>([])
+  const [students, setStudents] = useState<any[]>([])
+  const [assignments, setAssignments] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Allocation Modal State
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedStudentId, setSelectedStudentId] = useState(students[0].id)
-  const [selectedMentor, setSelectedMentor] = useState('Dr. K. S. Venkatesh')
+  const [selectedStudentId, setSelectedStudentId] = useState('')
+  const [selectedMentorId, setSelectedMentorId] = useState('')
+  const [allocationNotes, setAllocationNotes] = useState('Departmental faculty mentorship allocation')
+  const [isSaving, setIsSaving] = useState(false)
 
-  const mentorsList = [
-    { name: 'Dr. K. S. Venkatesh', designation: 'Associate Professor', load: 5 },
-    { name: 'Prof. Rajeshwari N.', designation: 'Assistant Professor', load: 6 },
-    { name: 'Dr. Ramesh Kumar', designation: 'Professor', load: 4 },
-    { name: 'Prof. Sunita Patil', designation: 'Assistant Professor', load: 5 },
-  ]
+  // Tab State: active vs history
+  const [viewTab, setViewTab] = useState<'active' | 'history'>('active')
 
-  const handleReassign = () => {
-    setStudents((prev) =>
-      prev.map((s) =>
-        s.id === selectedStudentId ? { ...s, mentorName: selectedMentor } : s
+  const loadData = async () => {
+      try {
+        const supabase = createClient()
+
+        // 1. Get current admin
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (!user) throw new Error('Authentication required.')
+
+        const { data: adminProf } = await supabase
+          .from('profiles')
+          .select('department')
+          .eq('user_id', user.id)
+          .single()
+
+        if (!adminProf) throw new Error('Administrator profile not found.')
+        const dept = adminProf.department
+
+        // 2. Fetch department mentors
+        const { data: mentorList } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('department', dept)
+          .eq('role', 'mentor')
+          .order('full_name', { ascending: true })
+
+        setMentors(mentorList || [])
+
+        // 3. Fetch department students
+        const { data: studentList } = await supabase
+          .from('student_profiles')
+          .select(`
+          id,
+          usn,
+          semester,
+          department,
+          verification_status,
+          profiles (
+            full_name,
+            email
+          )
+        `)
+          .eq('department', dept)
+          .order('usn', { ascending: true })
+
+        setStudents(studentList || [])
+
+        // 4. Fetch all mentor_assignments in department
+        const { data: assignList, error: assignErr } = await supabase
+          .from('mentor_assignments')
+          .select(`
+          id,
+          assigned_at,
+          is_active,
+          notes,
+          student:student_profiles (
+            id,
+            usn,
+            semester,
+            department,
+            profiles (
+              full_name,
+              email
+            )
+          ),
+          mentor:profiles!mentor_assignments_mentor_profile_id_fkey (
+            id,
+            full_name,
+            email,
+            phone_number
+          ),
+          assigned_by:profiles!mentor_assignments_assigned_by_profile_id_fkey (
+            full_name
+          )
+        `)
+          .order('assigned_at', { ascending: false })
+
+        if (assignErr) throw new Error(assignErr.message)
+
+        // Filter by department
+        const deptAssignments = (assignList || []).filter(
+          (a: any) => a.student?.department === dept
+        )
+        setAssignments(deptAssignments)
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load mentorship allocations.')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    useEffect(() => {
+      loadData()
+    }, [])
+
+    const openAllocateModal = (studentId?: string) => {
+      setSelectedStudentId(studentId || students[0]?.id || '')
+      setSelectedMentorId(mentors[0]?.id || '')
+      setAllocationNotes('Departmental faculty mentorship allocation')
+      setIsModalOpen(true)
+    }
+
+    const handleSaveAllocation = async () => {
+      if (!selectedStudentId || !selectedMentorId) {
+        toastError('Please select both a student and a faculty mentor.')
+        return
+      }
+
+      setIsSaving(true)
+      try {
+        await assignMentorToStudent({
+          studentProfileId: selectedStudentId,
+          mentorProfileId: selectedMentorId,
+          notes: allocationNotes,
+        })
+
+        const assignedMentor = mentors.find((m) => m.id === selectedMentorId)
+        success(`Faculty mentor allocated successfully: ${assignedMentor?.full_name}.`)
+        setIsModalOpen(false)
+        await loadData()
+      } catch (err: any) {
+        toastError(err?.message || 'Failed to assign mentor.')
+      } finally {
+        setIsSaving(false)
+      }
+    }
+
+    if (isLoading) {
+      return (
+        <div className="space-y-6">
+          <Skeleton className="h-8 w-64" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Skeleton className="h-24" />
+            <Skeleton className="h-24" />
+            <Skeleton className="h-24" />
+            <Skeleton className="h-24" />
+          </div>
+          <Skeleton className="h-96 w-full" />
+        </div>
       )
-    )
-    setIsModalOpen(false)
-    success(`Mentor re-allocation recorded: assigned to ${selectedMentor}.`)
-  }
+    }
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Faculty–Student Mentorship Allocation"
-        description="Allocate faculty mentors to student cohorts, manage mentoring loads, and update assignments."
-        breadcrumbs={[
-          { label: 'Administration', href: '/admin/dashboard' },
-          { label: 'Mentor Assignments' },
-        ]}
-        actions={
+    const activeAssignments = assignments.filter((a) => a.is_active)
+    const historyAssignments = assignments.filter((a) => !a.is_active)
+
+    // Mentor Load calculation
+    const mentorLoads = mentors.map((m) => {
+      const count = activeAssignments.filter((a) => a.mentor?.id === m.id).length
+      return {
+        ...m,
+        loadCount: count,
+      }
+    })
+
+    // Columns for Active Allocation Table
+    const activeColumns: ColumnDef<any>[] = [
+      {
+        key: 'usn',
+        header: 'USN',
+        sortable: true,
+        cell: (row) => (
+          <span className="font-mono font-bold text-slate-900 text-xs">
+            {row.student?.usn}
+          </span>
+        ),
+      },
+      {
+        key: 'student',
+        header: 'Student Name',
+        sortable: true,
+        cell: (row) => (
+          <div>
+            <p className="font-semibold text-slate-900 text-xs">
+              {row.student?.profiles?.full_name}
+            </p>
+            <span className="text-[11px] text-slate-400 font-mono">
+              {row.student?.profiles?.email} • Sem {row.student?.semester}
+            </span>
+          </div>
+        ),
+      },
+      {
+        key: 'mentor',
+        header: 'Assigned Faculty Mentor',
+        sortable: true,
+        cell: (row) => (
+          <div>
+            <p className="font-semibold text-slate-900 text-xs">
+              {row.mentor?.full_name}
+            </p>
+            <span className="text-[11px] text-slate-500 font-mono">
+              {row.mentor?.email}
+            </span>
+          </div>
+        ),
+      },
+      {
+        key: 'assigned_at',
+        header: 'Assigned On',
+        sortable: true,
+        cell: (row) => (
+          <span className="text-slate-600 font-mono text-xs">
+            {formatDate(row.assigned_at)}
+          </span>
+        ),
+      },
+      {
+        key: 'assigned_by',
+        header: 'Allocated By',
+        cell: (row) => (
+          <span className="text-slate-500 text-xs">
+            {row.assigned_by?.full_name || 'HOD Office'}
+          </span>
+        ),
+      },
+      {
+        key: 'actions',
+        header: 'Action',
+        align: 'right',
+        cell: (row) => (
           <Button
             size="sm"
-            variant="primary"
-            leftIcon={<Plus size={14} />}
-            onClick={() => setIsModalOpen(true)}
+            variant="outline"
+            onClick={() => openAllocateModal(row.student?.id)}
+            className="h-7 text-xs"
           >
-            Allocate / Reassign Mentor
+            Reassign Mentor
           </Button>
-        }
-      />
+        ),
+      },
+    ]
 
-      {/* Mentor Load Cards */}
-      <div>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
-          Faculty Mentoring Load
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {mentorsList.map((m) => (
-            <div
-              key={m.name}
-              className="bg-white border border-slate-200 rounded-md p-4 shadow-xs"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-800">{m.name}</h4>
-                  <p className="text-[11px] text-slate-500">{m.designation}</p>
-                </div>
-                <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-xs font-bold">
-                  {m.load}
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between">
-                <span>Allocated Cohort:</span>
-                <span className="font-semibold text-slate-700">
-                  {m.load} Mentees
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+    // Columns for Inactive / Previous Assignment History
+    const historyColumns: ColumnDef<any>[] = [
+      {
+        key: 'usn',
+        header: 'USN',
+        sortable: true,
+        cell: (row) => (
+          <span className="font-mono font-bold text-slate-700 text-xs">
+            {row.student?.usn}
+          </span>
+        ),
+      },
+      {
+        key: 'student',
+        header: 'Student Name',
+        cell: (row) => (
+          <span className="font-semibold text-slate-800 text-xs">
+            {row.student?.profiles?.full_name}
+          </span>
+        ),
+      },
+      {
+        key: 'mentor',
+        header: 'Previous Faculty Mentor',
+        cell: (row) => (
+          <span className="text-slate-700 text-xs">
+            {row.mentor?.full_name}
+          </span>
+        ),
+      },
+      {
+        key: 'assigned_at',
+        header: 'Assignment Date',
+        sortable: true,
+        cell: (row) => (
+          <span className="text-slate-500 font-mono text-xs">
+            {formatDate(row.assigned_at)}
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        cell: () => (
+          <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+            Superseded / Inactive
+          </span>
+        ),
+      },
+    ]
 
-      {/* Current Allocations Table */}
-      <Card
-        title="Active Student Allocations"
-        description="Current mentor–mentee assignments for Semester 3 and 5 batches."
-      >
-        <div className="divide-y divide-slate-100 text-xs">
-          {students.map((st) => (
-            <div
-              key={st.id}
-              className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-            >
-              <div className="flex items-center gap-3">
-                <span className="w-8 h-8 rounded bg-slate-100 font-mono text-xs font-bold text-slate-700 flex items-center justify-center shrink-0">
-                  S{st.semester}
-                </span>
-                <div>
-                  <p className="font-semibold text-slate-800">
-                    {st.profiles?.full_name}
-                  </p>
-                  <p className="text-slate-500 font-mono text-[11px]">
-                    {st.usn} • CGPA: {st.cgpa}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <p className="font-semibold text-slate-800 text-xs">
-                    {st.mentorName}
-                  </p>
-                  <p className="text-[11px] text-slate-400">Faculty Mentor</p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedStudentId(st.id)
-                    setSelectedMentor(st.mentorName)
-                    setIsModalOpen(true)
-                  }}
-                  className="h-7 text-xs"
-                >
-                  Change
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      {/* Reassign Dialog */}
-      <Dialog
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Allocate Faculty Mentor"
-        description="Select a student and assign an available faculty mentor from Department of CSE."
-        footer={
-          <>
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Faculty–Student Mentorship Allocation"
+          description="Allocate faculty mentors to student cohorts, manage mentoring loads, and record reassignments."
+          breadcrumbs={[
+            { label: 'Administration', href: '/admin/dashboard' },
+            { label: 'Mentor Allocation' },
+          ]}
+          actions={
             <Button
-              variant="outline"
               size="sm"
-              onClick={() => setIsModalOpen(false)}
+              variant="primary"
+              leftIcon={<Plus size={14} />}
+              onClick={() => openAllocateModal()}
+              disabled={students.length === 0 || mentors.length === 0}
             >
-              Cancel
+              Allocate / Reassign Mentor
             </Button>
-            <Button variant="primary" size="sm" onClick={handleReassign}>
-              Confirm Allocation
-            </Button>
-          </>
+          }
+        />
+
+        {/* Faculty Load Overview Cards */}
+        <div>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+            Department Faculty Mentoring Load
+          </h3>
+                    {mentors.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No faculty mentors on record.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                        {mentorLoads.map((m) => (
+              <div
+                key={m.id}
+                className="bg-white border border-slate-200 rounded-md p-3.5 shadow-xs space-y-1.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-900 truncate">
+                    {m.full_name}
+                  </span>
+                  <span className="font-mono text-xs font-bold text-accent bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    {m.loadCount} Mentees
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-mono truncate">
+                  {m.email}
+                </p>
+              </div>
+            ))}
+                </div>
+        )}
+              </div>
+
+                    {/* Active vs History Tabs */}
+                    <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                      <button
+                        onClick={() => setViewTab('active')}
+                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded transition-colors ${viewTab === 'active'
+                            ? 'bg-slate-900 text-white'
+                            : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                      >
+                        <UserCheck size={13} />
+                        Active Mentor Allocations ({activeAssignments.length})
+                      </button>
+                      <button
+                        onClick={() => setViewTab('history')}
+                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded transition-colors ${viewTab === 'history'
+                            ? 'bg-slate-900 text-white'
+                            : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                      >
+                        <History size={13} />
+                        Assignment History ({historyAssignments.length})
+                      </button>
+                    </div>
+
+          {/* Allocation DataTable */}
+          {viewTab === 'active' ? (
+            <DataTable
+              columns={activeColumns as any}
+              data={activeAssignments as any}
+              defaultSortKey="usn"
+              defaultSortDirection="asc"
+              pageSize={10}
+              emptyTitle="No active mentorship allocations"
+              emptyDescription="Click 'Allocate / Reassign Mentor' above to assign students to faculty mentors."
+            />
+          ) : (
+            <DataTable
+              columns={historyColumns as any}
+              data={historyAssignments as any}
+              defaultSortKey="assigned_at"
+              defaultSortDirection="desc"
+              pageSize={10}
+              emptyTitle="No historical reassignments"
+              emptyDescription="Superseded mentor assignment records will appear in this history audit."
+            />
+          )}
+
+          {/* Allocation / Reassignment Modal */}
+          <Dialog
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            title="Allocate or Reassign Faculty Mentor"
+            description="Select student and designated departmental faculty mentor. Prior active assignments will be cleanly superseded."
+            footer={
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsModalOpen(false)}
+                    disabled={isSaving}
+                  >
+                    Cancel
+                  </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSaveAllocation}
+                      isLoading={isSaving}
+                    >
+                      Confirm Allocation
+                    </Button>
+                </div>
         }
       >
-        <div className="space-y-4">
-          <FormField label="Target Student" required htmlFor="assignStudent">
-            <Select
-              id="assignStudent"
-              value={selectedStudentId}
-              onChange={(e) => setSelectedStudentId(e.target.value)}
-              options={students.map((s) => ({
-                value: s.id,
-                label: `${s.profiles?.full_name} (${s.usn} - Sem ${s.semester})`,
-              }))}
-            />
+                    <div className="space-y-4 text-xs">
+                      <FormField label="Select Student" htmlFor="alStudent" required>
+                        <Select
+                          id="alStudent"
+                          value={selectedStudentId}
+                          onChange={(e) => setSelectedStudentId(e.target.value)}
+                            options={
+                              students.map((st) => ({
+                                value: st.id,
+                                label: `${st.profiles?.full_name} (${st.usn} • Sem ${st.semester})`,
+                              }))
+                            }
+                            />
           </FormField>
 
-          <FormField label="Assign Faculty Mentor" required htmlFor="assignMentor">
-            <Select
-              id="assignMentor"
-              value={selectedMentor}
-              onChange={(e) => setSelectedMentor(e.target.value)}
-              options={mentorsList.map((m) => ({
-                value: m.name,
-                label: `${m.name} (${m.designation} - ${m.load} students)`,
-              }))}
+                        <FormField label="Select Designated Faculty Mentor" htmlFor="alMentor" required>
+                          <Select
+                              id="alMentor"
+              value={ selectedMentorId }
+              onChange={(e) => setSelectedMentorId(e.target.value)}
+                          options={mentorLoads.map((m) => ({
+                            value: m.id,
+                            label: `${m.full_name} (Current load: ${m.loadCount} mentees)`,
+                          }))}
             />
-          </FormField>
-        </div>
-      </Dialog>
-    </div>
-  )
+                        </FormField>
+
+                        <FormField
+                          label="Allocation Justification / Administrative Note"
+                          htmlFor="alNotes"
+                          description="Institutional remark logged with this mentor allocation."
+                        >
+                          <Textarea
+                            id="alNotes"
+                            rows={2}
+                            value={allocationNotes}
+                            onChange={(e) => setAllocationNotes(e.target.value)}
+                            placeholder="e.g. Assigned for Semester 5 mentoring cycle..."
+                          />
+                        </FormField>
+                    </div>
+                  </Dialog>
+                </div>
+                )
 }
-

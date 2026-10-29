@@ -50,16 +50,18 @@ const navItems: Record<Role, NavItem[]> = {
   administrator: [
     { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'Student Directory', href: '/admin/students', icon: Users },
+    { label: 'Review Workspace', href: '/admin/reviews', icon: CheckSquare },
     { label: 'Mentor Allocation', href: '/admin/assignments', icon: ClipboardList },
     { label: 'Recommendations', href: '/admin/recommendations', icon: ThumbsUp },
-    { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText },
+    { label: 'Audit Trail', href: '/admin/audit-log', icon: ScrollText },
   ],
   hod: [
     { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'Student Directory', href: '/admin/students', icon: Users },
+    { label: 'Review Workspace', href: '/admin/reviews', icon: CheckSquare },
     { label: 'Mentor Allocation', href: '/admin/assignments', icon: ClipboardList },
     { label: 'Recommendations', href: '/admin/recommendations', icon: ThumbsUp },
-    { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText },
+    { label: 'Audit Trail', href: '/admin/audit-log', icon: ScrollText },
   ],
 }
 
@@ -138,8 +140,8 @@ export function Sidebar({
             normalizedRole === 'administrator'
               ? 'purple'
               : normalizedRole === 'mentor'
-              ? 'primary'
-              : 'success'
+                ? 'primary'
+                : 'success'
           }
           className="text-[10px] py-0 px-1.5"
         >
