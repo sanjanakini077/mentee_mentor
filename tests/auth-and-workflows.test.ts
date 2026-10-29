@@ -174,3 +174,4 @@ describe('Academic & Student Data Validation Tests', () => {
     assert.strictEqual(isValidMarks(55, 50), false)
   })
 })
+

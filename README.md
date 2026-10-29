@@ -205,3 +205,4 @@ npm run build
 
 1. **Email / SMS Delivery Integration**: Notifications are currently stored and delivered in-app in real-time via PostgreSQL and Topbar polling. In production, connect an external transactional email provider (e.g., Resend or SendGrid) to the notification triggers.
 2. **Bulk CSV Enrollment**: Student directory provides individual creation and batch review; a bulk CSV ingestion pipeline with transaction rollbacks can be added to `/admin/students` for semester-start onboarding.
+
