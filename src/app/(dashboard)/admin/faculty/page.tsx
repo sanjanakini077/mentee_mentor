@@ -150,10 +150,14 @@ export default function FacultyDirectoryPage() {
           { label: 'Faculty Members' },
         ]}
         actions={
-          <Button onClick={handleOpenModal} className="flex items-center gap-2">
-            <UserPlus className="h-4 w-4" />
-            Add Faculty Mentor
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/faculty/register">
+              <Button className="flex items-center gap-2">
+                <UserPlus className="h-4 w-4" />
+                Register Faculty
+              </Button>
+            </Link>
+          </div>
         }
       />
 

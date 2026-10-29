@@ -27,12 +27,12 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import {
   getMentorDashboardData,
+  getMentorNotesData,
   createMentorNote,
   updateMentorNote,
   deleteMentorNote,
   type MentorStudentSummary,
 } from '@/lib/services/mentorService'
-import { getStore } from '@/lib/storage/demoStore'
 import { formatDate } from '@/lib/utils'
 import type { MentorNote, NoteVisibility } from '@/types'
 
@@ -66,24 +66,8 @@ export default function MentorNotesPage() {
       const dashboard = await getMentorDashboardData()
       setAssignedStudents(dashboard.assignedStudents)
 
-      const store = getStore()
-      const nts = store.mentorNotes
-        .filter(
-          (n) =>
-            n.mentor_profile_id === dashboard.mentorProfile.id ||
-            n.mentor_id === dashboard.mentorProfile.id
-        )
-        .map((n) => {
-          const sp = store.studentProfiles.find((s) => s.id === n.student_profile_id)
-          const prof = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
-          return {
-            ...n,
-            student: sp ? { ...sp, profiles: prof || undefined } : undefined,
-          }
-        })
-        .sort((a, b) => new Date(b.note_date).getTime() - new Date(a.note_date).getTime())
-
-      setNotes(nts)
+      const notesData = await getMentorNotesData()
+      setNotes(notesData.notes)
     } catch (err: any) {
       setError(err?.message || 'Failed to load mentoring session notes.')
     } finally {
@@ -93,8 +77,6 @@ export default function MentorNotesPage() {
 
   useEffect(() => {
     loadData()
-    window.addEventListener('mms-store-changed', loadData)
-    return () => window.removeEventListener('mms-store-changed', loadData)
   }, [])
 
   const filteredNotes = useMemo(() => {

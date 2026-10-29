@@ -2,14 +2,15 @@
 
 import { useRouter } from 'next/navigation'
 import { LogOut } from 'lucide-react'
-import { logoutDemoUser } from '@/lib/storage/demoStore'
+import { logoutAction } from '@/lib/actions/authActions'
 
 export function SignOutButton() {
   const router = useRouter()
 
-  function handleSignOut() {
-    logoutDemoUser()
+  async function handleSignOut() {
+    await logoutAction()
     router.push('/auth/sign-in')
+    router.refresh()
   }
 
   return (

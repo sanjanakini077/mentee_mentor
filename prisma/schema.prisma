@@ -1,0 +1,190 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Profile {
+  id           String   @id @default(cuid())
+  user_id      String?  // backwards-compatibility alias for id
+  role         String   @default("mentee") // "mentee" | "mentor" | "administrator" | "hod"
+  full_name    String
+  email        String   @unique
+  password     String   @default("demo123")
+  employee_id  String?  @unique
+  department   String   @default("Information Science & Engineering")
+  phone_number String?
+  avatar_url   String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  student_profile     StudentProfile?
+  mentor_assignments  MentorAssignment[]     @relation("MentorAssignments")
+  created_assignments MentorAssignment[]     @relation("AssignedBy")
+  mentor_notes        MentorNote[]           @relation("MentorNotes")
+  recommendations     MentorRecommendation[] @relation("MentorRecommendations")
+  notifications       Notification[]
+  audit_logs          AuditLog[]             @relation("ActorAuditLogs")
+
+  @@map("profiles")
+}
+
+model StudentProfile {
+  id                  String    @id @default(cuid())
+  profile_id          String    @unique
+  usn                 String    @unique
+  department          String    @default("Information Science & Engineering")
+  semester            Int       @default(1)
+  academic_batch      String    @default("2021-2025")
+  section             String?
+  phone               String?
+  address             String?
+  parent_name         String?
+  parent_phone        String?
+  blood_group         String?
+  verification_status String    @default("draft") // "draft" | "submitted" | "approved" | "rejected" | "correction_requested"
+  reviewer_profile_id String?
+  review_comment      String?
+  reviewed_at         DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  profile            Profile                @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  academic_records   AcademicRecord[]
+  mentor_assignments MentorAssignment[]
+  mentor_notes       MentorNote[]
+  recommendations    MentorRecommendation[]
+  documents          StudentDocument[]
+
+  @@map("student_profiles")
+}
+
+model AcademicRecord {
+  id                    String   @id @default(cuid())
+  student_profile_id    String
+  semester              Int
+  academic_year         String
+  course_code           String
+  course_name           String
+  credits               Int      @default(3)
+  marks_obtained        Float?
+  max_marks             Float    @default(100.0)
+  grade                 String?
+  grade_points          Float?
+  attendance_percentage Float?
+  is_backlog            Boolean  @default(false)
+  remarks               String?
+  sgpa                  Float?
+  cgpa                  Float?
+  backlogs              Int      @default(0)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  student_profile StudentProfile @relation(fields: [student_profile_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_profile_id, semester, course_code, academic_year])
+  @@map("academic_records")
+}
+
+model MentorAssignment {
+  id                     String   @id @default(cuid())
+  student_profile_id     String
+  mentor_profile_id      String
+  assigned_by_profile_id String?
+  assigned_at            DateTime @default(now())
+  is_active              Boolean  @default(true)
+  notes                  String?
+
+  student_profile StudentProfile @relation(fields: [student_profile_id], references: [id], onDelete: Cascade)
+  mentor          Profile        @relation("MentorAssignments", fields: [mentor_profile_id], references: [id], onDelete: Cascade)
+  assigned_by     Profile?       @relation("AssignedBy", fields: [assigned_by_profile_id], references: [id], onDelete: SetNull)
+
+  @@map("mentor_assignments")
+}
+
+model MentorNote {
+  id                 String   @id @default(cuid())
+  student_profile_id String
+  mentor_profile_id  String
+  note_date          String
+  content            String
+  visibility         String   @default("shared_with_mentee") // "shared_with_mentee" | "private_mentor_only"
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  student_profile StudentProfile @relation(fields: [student_profile_id], references: [id], onDelete: Cascade)
+  mentor          Profile        @relation("MentorNotes", fields: [mentor_profile_id], references: [id], onDelete: Cascade)
+
+  @@map("mentor_notes")
+}
+
+model MentorRecommendation {
+  id                  String    @id @default(cuid())
+  student_profile_id  String
+  mentor_profile_id   String
+  category            String
+  details             String
+  status              String    @default("pending") // "pending" | "approved" | "rejected"
+  reviewer_profile_id String?
+  review_comment      String?
+  reviewed_at         DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  student_profile StudentProfile @relation(fields: [student_profile_id], references: [id], onDelete: Cascade)
+  mentor          Profile        @relation("MentorRecommendations", fields: [mentor_profile_id], references: [id], onDelete: Cascade)
+
+  @@map("mentor_recommendations")
+}
+
+model Notification {
+  id                   String   @id @default(cuid())
+  recipient_profile_id String
+  title                String
+  message              String
+  type                 String   @default("info") // "info" | "success" | "warning" | "danger"
+  related_entity_type  String?
+  related_entity_id    String?
+  is_read              Boolean  @default(false)
+  created_at           DateTime @default(now())
+
+  recipient Profile @relation(fields: [recipient_profile_id], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id               String   @id @default(cuid())
+  actor_profile_id String?
+  action           String
+  target_type      String
+  target_id        String
+  metadata         String?  // JSON string
+  created_at       DateTime @default(now())
+
+  actor Profile? @relation("ActorAuditLogs", fields: [actor_profile_id], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model StudentDocument {
+  id                 String   @id @default(cuid())
+  student_profile_id String
+  title              String
+  document_type      String   @default("other") // "marks_card" | "transcript" | "certificate" | "other"
+  original_filename  String
+  stored_filename    String
+  file_path          String
+  content_type       String
+  file_size          Int
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  student_profile StudentProfile @relation(fields: [student_profile_id], references: [id], onDelete: Cascade)
+
+  @@map("student_documents")
+}
+

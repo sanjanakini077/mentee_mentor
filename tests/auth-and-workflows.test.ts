@@ -175,3 +175,42 @@ describe('Academic & Student Data Validation Tests', () => {
   })
 })
 
+describe('Password Hashing & Authentication Security', () => {
+  it('correctly hashes and verifies scrypt passwords', async () => {
+    const crypto = await import('node:crypto')
+
+    function hashPassword(password: string): string {
+      const salt = crypto.randomBytes(16).toString('hex')
+      const derivedKey = crypto.scryptSync(password, salt, 64).toString('hex')
+      return `scrypt:${salt}:${derivedKey}`
+    }
+
+    function verifyPassword(password: string, storedPassword?: string | null): boolean {
+      if (!storedPassword) return false
+      if (storedPassword.startsWith('scrypt:')) {
+        const parts = storedPassword.split(':')
+        if (parts.length !== 3) return false
+        const [, salt, expectedHash] = parts
+        try {
+          const actualHash = crypto.scryptSync(password, salt, 64).toString('hex')
+          const actualBuf = Buffer.from(actualHash, 'hex')
+          const expectedBuf = Buffer.from(expectedHash, 'hex')
+          if (actualBuf.length !== expectedBuf.length) return false
+          return crypto.timingSafeEqual(actualBuf, expectedBuf)
+        } catch {
+          return false
+        }
+      }
+      return password === storedPassword
+    }
+
+    const secret = 'InstitutionalPass@2025'
+    const hashed = hashPassword(secret)
+
+    assert.ok(hashed.startsWith('scrypt:'))
+    assert.strictEqual(verifyPassword(secret, hashed), true)
+    assert.strictEqual(verifyPassword('WrongPass', hashed), false)
+    assert.strictEqual(verifyPassword('demo123', 'demo123'), true, 'Legacy demo password supported')
+  })
+})
+

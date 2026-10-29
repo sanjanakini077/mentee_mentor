@@ -20,8 +20,7 @@ import { FormField } from '@/components/ui/FormField'
 import { Textarea } from '@/components/ui/Textarea'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
-import { reviewMentorRecommendation } from '@/lib/services/adminService'
-import { getStore } from '@/lib/storage/demoStore'
+import { reviewMentorRecommendation, getAllRecommendationsForAdmin } from '@/lib/services/adminService'
 import { formatDate } from '@/lib/utils'
 
 export default function AdminRecommendationsPage() {
@@ -37,32 +36,20 @@ export default function AdminRecommendationsPage() {
   const [comment, setComment] = useState('')
   const [isCommitting, setIsCommitting] = useState(false)
 
-    const loadData = () => {
-      try {
-        const store = getStore()
-        const deptRecs = store.recommendations.map((r) => {
-          const sp = store.studentProfiles.find((s) => s.id === r.student_profile_id)
-          const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
-          const mentor = store.profiles.find((p) => p.id === r.mentor_profile_id)
-          return {
-            ...r,
-            student: sp ? { ...sp, profiles: stProf } : null,
-            mentor: mentor || null,
-          }
-        })
-        setRecommendations(deptRecs)
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load recommendations.')
-      } finally {
-        setIsLoading(false)
-      }
+  const loadData = async () => {
+    try {
+      const data = await getAllRecommendationsForAdmin()
+      setRecommendations(data)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load recommendations.')
+    } finally {
+      setIsLoading(false)
     }
+  }
 
-    useEffect(() => {
-      loadData()
-      window.addEventListener('mms-store-changed', loadData)
-      return () => window.removeEventListener('mms-store-changed', loadData)
-    }, [])
+  useEffect(() => {
+    loadData()
+  }, [])
 
   const handleDecisionSubmit = async () => {
     if (!activeRec || !decision) return

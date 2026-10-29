@@ -27,10 +27,10 @@ import {
   markAllProfileNotificationsAsRead,
 } from '@/lib/services/notificationService'
 import {
-  logoutDemoUser,
-  resetDemoData,
-  loginDemoUser,
-} from '@/lib/storage/demoStore'
+  logoutAction,
+  loginAction,
+  resetDemoDataAction,
+} from '@/lib/actions/authActions'
 import { formatDateTime } from '@/lib/utils'
 
 interface TopbarProps {
@@ -85,21 +85,23 @@ export function Topbar({ user, onOpenMobileMenu, pageTitle }: TopbarProps) {
     .join('')
     .toUpperCase()
 
-  const handleSignOut = () => {
-    logoutDemoUser()
+  const handleSignOut = async () => {
+    await logoutAction()
     router.push('/auth/sign-in')
+    router.refresh()
   }
 
-  const handleQuickSwitch = (role: 'student' | 'mentor' | 'hod') => {
-    const newUser = loginDemoUser(role)
+  const handleQuickSwitch = async (role: 'student' | 'mentor' | 'hod') => {
+    await loginAction(role, 'demo123')
     setProfileOpen(false)
     if (role === 'student') router.push('/mentee/dashboard')
     else if (role === 'mentor') router.push('/mentor/dashboard')
     else router.push('/admin/dashboard')
+    router.refresh()
   }
 
-  const handleConfirmReset = () => {
-    resetDemoData()
+  const handleConfirmReset = async () => {
+    await resetDemoDataAction()
     setResetDialogOpen(false)
     window.location.reload()
   }

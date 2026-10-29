@@ -28,12 +28,12 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import {
   getMentorDashboardData,
+  getMentorRecommendationsData,
   createMentorRecommendation,
   updateMentorRecommendation,
   deleteMentorRecommendation,
   type MentorStudentSummary,
 } from '@/lib/services/mentorService'
-import { getStore } from '@/lib/storage/demoStore'
 import { formatDate } from '@/lib/utils'
 import type { MentorRecommendation, RecommendationCategory } from '@/types'
 
@@ -61,23 +61,8 @@ export default function MentorRecommendationsPage() {
       const dashboard = await getMentorDashboardData()
       setAssignedStudents(dashboard.assignedStudents)
 
-      const store = getStore()
-      const recs = store.recommendations
-        .filter(
-          (r) =>
-            r.mentor_profile_id === dashboard.mentorProfile.id ||
-            r.mentor_id === dashboard.mentorProfile.id
-        )
-        .map((r) => {
-          const sp = store.studentProfiles.find((s) => s.id === r.student_profile_id)
-          const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
-          return {
-            ...r,
-            student: sp ? { ...sp, profiles: stProf || undefined } : undefined,
-          }
-        })
-
-      setRecommendations(recs)
+      const recsData = await getMentorRecommendationsData()
+      setRecommendations(recsData.recommendations)
     } catch (err: any) {
       setError(err?.message || 'Failed to load recommendations.')
     } finally {
@@ -87,8 +72,6 @@ export default function MentorRecommendationsPage() {
 
   useEffect(() => {
     loadData()
-    window.addEventListener('mms-store-changed', loadData)
-    return () => window.removeEventListener('mms-store-changed', loadData)
   }, [])
 
   const openNewModal = () => {

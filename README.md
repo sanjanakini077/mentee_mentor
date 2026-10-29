@@ -1,34 +1,32 @@
-# College Mentor–Mentee Management System (MMS) — Local Demo
+# College Mentor–Mentee Management System (MMS) — SQLite & Prisma
 
 An institutional college ERP platform designed for higher education institutions to manage, monitor, and streamline mentorship workflows between students, faculty mentors, and Department Heads (HODs).
 
-This project runs as a **self-contained local demonstration application** powered by **Next.js 14/16 (App Router)**, **TypeScript**, **Tailwind CSS**, and **Browser `localStorage`**. No Supabase account, database migrations, API keys, or external backend services are required.
+This project runs as a **self-contained local demonstration application** powered by **Next.js App Router**, **TypeScript**, **Tailwind CSS**, **Prisma ORM**, and a local **SQLite database** (`prisma/dev.db`). No cloud accounts, Supabase credentials, or external API keys are required.
 
 ---
 
 ## Table of Contents
 
-- [1. Introduction & Problem Solved](#1-introduction--problem-solved)
+- [1. Introduction & Overview](#1-introduction--overview)
 - [2. Quick Start (1-Minute Setup)](#2-quick-start-1-minute-setup)
 - [3. Demo User Accounts & Access](#3-demo-user-accounts--access)
-- [4. Role Features & Portals](#4-role-features--portals)
+- [4. Role Portals & Capabilities](#4-role-portals--capabilities)
   - [Student Portal (Mentee)](#student-portal-mentee)
   - [Faculty Portal (Mentor)](#faculty-portal-mentor)
   - [HOD Administration Portal](#hod-administration-portal)
 - [5. Interconnected Demonstration Workflows](#5-interconnected-demonstration-workflows)
-- [6. LocalStorage Data Store Architecture](#6-localstorage-data-store-architecture)
-- [7. Resetting Demo Data](#7-resetting-demo-data)
-- [8. Technology Stack](#8-technology-stack)
-- [9. Available Scripts](#9-available-scripts)
-- [10. Browser Isolation & Demo Notes](#10-browser-isolation--demo-notes)
+- [6. Database Architecture (SQLite & Prisma)](#6-database-architecture-sqlite--prisma)
+- [7. Available Scripts](#7-available-scripts)
+- [8. Academic Demonstration Notes](#8-academic-demonstration-notes)
 
 ---
 
-## 1. Introduction & Problem Solved
+## 1. Introduction & Overview
 
 In universities and engineering colleges, academic mentorship is often tracked using fragmented spreadsheets, paper diaries, or disconnected emails.
 
-This platform unifies the three core academic roles into a single portal:
+This platform unifies the three core academic roles into a single portal with authoritative SQLite persistence:
 1. **Students (Mentees)**: Manage USN, semester, contact information, semester-wise course grades, attendance, submission tracking, and view assigned mentor guidance notes.
 2. **Faculty Mentors**: Monitor their assigned student cohort, record dated mentoring notes (with visibility control: shared or private), and submit formal recommendations (internship, merit award, remedial) to the HOD.
 3. **Department Heads (HODs)**: Inspect department-wide student and faculty directories, verify student profile submissions (approve, reject, or request corrections with feedback), allocate and reassign mentors, and review faculty recommendations.
@@ -38,27 +36,31 @@ This platform unifies the three core academic roles into a single portal:
 ## 2. Quick Start (1-Minute Setup)
 
 ### Prerequisites
-- **Node.js**: v18.17.0+ or v20+
+- **Node.js**: v18.17.0+ or v20+ / v24+
 - **npm** (included with Node.js)
 - **Git**
 
-### Installation & Launch
+### Installation & Launch Command Order
+
+A fresh clone initializes its own database in three simple steps:
 
 ```bash
-# 1. Clone repository
-git clone <YOUR_REPOSITORY_URL>
-cd "Mentor - Mentee platform"
-
-# 2. Install dependencies (zero external backend setup needed)
+# 1. Install dependencies
 npm install
 
-# 3. Start development server
+# 2. Push Prisma schema & generate client (creates local prisma/dev.db)
+npm run prisma:migrate
+
+# 3. Seed demo accounts (Sanjana Kini, Dr. Jason Elroy Martis, Dr. Ashwini B)
+npm run db:seed
+
+# 4. Start development server
 npm run dev
 ```
 
-Open **`http://localhost:3000`** (or `http://localhost:3001` if port 3000 is occupied) in your browser.
+Open **`http://localhost:3000`** in your browser.
 
-> **Zero Configuration Required**: You do **not** need `.env.local` keys, Supabase credentials, or SQL migrations. The application automatically initializes with realistic department seed data on first load.
+> **Local SQLite Database**: The database file is created automatically at `prisma/dev.db`. All records persist across server restarts without losing data.
 
 ---
 
@@ -68,19 +70,22 @@ The login page (`/auth/sign-in`) provides **instant 1-click portal entry** and p
 
 | Role | Demo Email | Demo Password | Default Name & Department |
 | :--- | :--- | :--- | :--- |
-| **Student** | `student@demo.com` | `demo123` | Sanjana Kini • ISE (Sem 6) |
+| **Student** | `student@demo.com` | `demo123` | Sanjana Kini • Information Science & Engineering (Sem 6) |
 | **Faculty Mentor** | `mentor@demo.com` | `demo123` | Dr. Jason Elroy Martis, Associate Professor • ISE |
-| **Department HOD** | `hod@demo.com` | `demo123` | Dr. Ashwini B • HOD ISE |
+| **Department HOD** | `hod@demo.com` | `demo123` | Dr. Ashwini B • Department Head, ISE |
 
 You can also switch active roles on the fly using the **Demo Role Switch** buttons in the top-right profile dropdown.
 
 ---
 
-## 4. Role Features & Portals
+## 4. Role Portals & Capabilities
 
 ### Student Portal (Mentee)
+- **Student Self-Registration (`/auth/sign-up`)**: Public student registration with field validations (Name, USN, Institutional Email, Department, Semester, Phone, Password confirmation) and automatic `mentee` role assignment with cryptographic scrypt password hashing.
 - **Dashboard (`/mentee/dashboard`)**: Profile completion gauge, assigned mentor card, verification progress status, recent academic performance, and institutional alerts.
-- **My Profile (`/mentee/profile`)**: Edit full name, contact phone, semester, blood group, permanent address, and guardian contact details.
+- **My Profile (`/mentee/profile`)**:
+  - **Profile Details**: View USN and email; edit full name, phone number, department, semester, blood group, address, parent name, and parent phone with immediate SQLite persistence.
+  - **Academic Documents**: Upload, manage, preview, download, and delete academic records (Marks Cards, Transcripts, Certificates) stored securely in `uploads/documents/` on the server filesystem.
 - **Academic Records (`/mentee/academics`)**: View and add semester-by-semester courses, grades, credits, attendance percentage, and backlog tracking.
 - **My Mentor (`/mentee/mentor`)**: Contact details of assigned mentor and chronological guidance session notes.
 - **Verification Desk (`/mentee/verification`)**: Submit profile for departmental verification and inspect official reviewer feedback comments.
@@ -96,85 +101,71 @@ You can also switch active roles on the fly using the **Demo Role Switch** butto
 ### HOD Administration Portal
 - **HOD Dashboard (`/admin/dashboard`)**: Departmental metrics, pending verification queue, mentor distribution, and recent audit logs.
 - **Student Directory (`/admin/students`)**: Search and filter department students by USN, semester, verification status, and assigned mentor. Includes modal student academic inspection.
+- **Faculty Directory (`/admin/faculty`)**: Department mentor roster with assigned mentee ratios.
+- **Register Faculty Mentor (`/admin/faculty/register`)**: Dedicated HOD administration page to provision new faculty mentors with Employee ID, Department, Contact Phone, and initial credentials (role is strictly enforced as `mentor`).
+- **Review Workspace (`/admin/reviews`)**: Dedicated decision desk to inspect student submissions and approve, reject, or request corrections with explanatory comments.
+- **Mentorship Allotment (`/admin/assignments`)**: Active cohort allocation desk to assign or reassign students to faculty mentors.
+- **Recommendations Desk (`/admin/recommendations`)**: Review and endorse faculty mentor recommendations.
+- **Audit Logs (`/admin/audit-log`)**: Department governance log tracking profile submissions, reviews, mentor assignments, and recommendations.
 - **Faculty Directory (`/admin/faculty`)**: Department mentor roster with assigned mentee ratios and in-app provisioning modal to add new faculty mentors.
 - **Review Workspace (`/admin/reviews`)**: Dedicated decision desk to inspect student submissions and approve, reject, or request corrections with explanatory comments.
-- **Mentor Allocation (`/admin/assignments`)**: Interactive mentor assignment desk to assign or reallocate students to faculty mentors.
-- **Recommendation Endorsements (`/admin/recommendations`)**: Review and sanction faculty recommendations with official remarks.
-- **Audit Trail (`/admin/audit-log`)**: Log of all administrative actions, submissions, and status changes.
+- **Mentorship Allotment (`/admin/assignments`)**: Active cohort allocation desk to assign or reassign students to faculty mentors.
+- **Recommendations Desk (`/admin/recommendations`)**: Review and endorse faculty mentor recommendations.
+- **Audit Logs (`/admin/audit-log`)**: Department governance log tracking profile submissions, reviews, mentor assignments, and recommendations.
 
 ---
 
 ## 5. Interconnected Demonstration Workflows
 
-All portals interact through the shared browser store in real time:
+Because all data is centrally stored in SQLite and managed through Next.js Server Actions:
 
-1. **Student Profile Verification Flow**:
-   - Log in as **Student** (`student@demo.com`).
-   - Go to **Verification Desk** $\rightarrow$ Click **Submit Records for Verification**.
-   - Switch to **HOD** (`hod@demo.com`) $\rightarrow$ Open **Review Workspace** (`/admin/reviews`).
-   - The student's submission appears in the queue.
-   - Click **Review** $\rightarrow$ Choose **Approve** or **Request Corrections** with remarks.
-   - Switch back to **Student** $\rightarrow$ Status immediately reflects the HOD's decision and comments!
+1. **Profile Verification Workflow**:
+   - Sanjana Kini edits her profile and clicks **Submit for Department Verification** on `/mentee/verification`.
+   - The status updates to `submitted` in SQLite.
+   - Dr. Ashwini B (HOD) logs in, sees Sanjana's pending profile in `/admin/reviews`, and approves it or requests corrections with feedback.
+   - Sanjana logs back in and immediately sees the updated verification badge and HOD remarks.
 
-2. **Mentor Recommendation & Endorsement Flow**:
-   - Log in as **Mentor** (`mentor@demo.com`).
-   - Go to **Recommendations** $\rightarrow$ Click **New Recommendation** (e.g. IISc Summer Internship).
-   - Switch to **HOD** $\rightarrow$ Open **Recommendations** (`/admin/recommendations`).
-   - Review and click **Approve Recommendation**.
-   - The mentor's dashboard and student notifications update with the approved endorsement.
+2. **Mentor Recommendation Workflow**:
+   - Dr. Jason Elroy Martis submits an Internship Recommendation for Sanjana on `/mentor/recommendations`.
+   - Dr. Ashwini B views it in `/admin/recommendations` and approves it.
+   - Dr. Jason and Sanjana both receive in-app notifications and see the approved status.
 
-3. **Mentor Allocation Flow**:
-   - As **HOD**, open **Mentor Allocation** (`/admin/assignments`).
-   - Allocate an unassigned student to a faculty mentor.
-   - Log in as that **Faculty Mentor** $\rightarrow$ The student immediately appears in their assigned cohort.
+3. **Mentor Assignment Workflow**:
+   - HOD reassigns a student to a faculty mentor in `/admin/assignments`.
+   - The mentor's dashboard roster instantly reflects the new mentee.
 
 ---
 
-## 6. LocalStorage Data Store Architecture
+## 6. Database Architecture (SQLite & Prisma)
 
-The demo data store (`src/lib/storage/demoStore.ts`) provides:
-- **Zero Server Setup**: All state is stored locally under the `MMS_DEMO_DATA_V1` key.
-- **SSR Safe**: Guarded with `typeof window !== 'undefined'` and hydration-safe initial states to prevent Next.js SSR mismatch warnings.
-- **Reactive Updates**: Dispatches `mms-store-changed` custom browser events so all active components and navigation badges re-render immediately upon changes.
-- **State Persistence**: Changes (e.g., edited profile, added course, new note) persist across page refreshes.
-
----
-
-## 7. Resetting Demo Data
-
-To return the entire demo back to the clean default seed state at any time:
-1. Click **Reset Demo Data** in the top navigation bar (or inside the user profile dropdown).
-2. Confirm the prompt dialog.
-3. The store resets to default student, mentor, and HOD records.
+The database schema is defined in `prisma/schema.prisma` with relational models:
+- **`Profile`**: User accounts (roles: `mentee`, `mentor`, `administrator`), hashed credentials, contact information.
+- **`StudentProfile`**: USN, semester, batch, verification status (`draft`, `submitted`, `approved`, `rejected`, `correction_requested`), HOD comments.
+- **`StudentDocument`**: Uploaded student academic records (Marks Cards, Transcripts, Certificates) with safe stored filenames, relative filesystem paths, file sizes, and MIME types.
+- **`AcademicRecord`**: Semester coursework, credits, marks, grades, attendance, backlog status, SGPA/CGPA.
+- **`MentorAssignment`**: Student-mentor relationships, active status, assignment timestamps.
+- **`MentorNote`**: Dated guidance logs with visibility control (`shared_with_mentee`, `private_mentor_only`).
+- **`MentorRecommendation`**: Formal proposals (`internship`, `remedial`, `scholarship`, `merit_award`) with review outcomes.
+- **`Notification`**: In-app role notifications.
+- **`AuditLog`**: Tamper-evident governance logs for administrative actions.
 
 ---
 
-## 8. Technology Stack
+## 7. Available Scripts
 
-- **Framework**: Next.js (App Router, React 18, Webpack compilation)
-- **Language**: TypeScript (Strict typing)
-- **Styling**: Tailwind CSS (Restrained institutional palette: Slate, White, Institutional Blue)
-- **Icons**: Lucide React
-- **Storage**: Browser `localStorage` (Zero-config demo data layer)
-- **Testing**: Node.js native test runner (`node:test`)
-
----
-
-## 9. Available Scripts
-
-| Command | Action |
+| Command | Description |
 | :--- | :--- |
-| `npm run dev` | Starts local Next.js development server |
-| `npm run build` | Builds optimized production bundle |
-| `npm run start` | Starts production server |
-| `npm test` | Runs security, verification state machine, and validation test suite |
+| `npm run dev` | Starts the Next.js development server at `http://localhost:3000` |
+| `npm run prisma:migrate` | Syncs Prisma schema with local SQLite database (`dev.db`) |
+| `npm run prisma:generate` | Generates the strongly-typed Prisma client |
+| `npm run db:seed` | Seeds demo accounts, coursework, assignments, and notes |
+| `npm test` | Runs the automated test suite |
+| `npm run build` | Builds the optimized production bundle |
 
 ---
 
-## 10. Browser Isolation & Demo Notes
+## 8. Academic Demonstration Notes
 
-> [!IMPORTANT]
-> **Data Scope**: Because data is stored in the browser's `localStorage`:
-> - Changes made in Chrome will not appear in Safari or Firefox (each browser maintains its own local store).
-> - Using an Incognito / Private window will use a fresh store that resets when the window closes.
-> - To demonstrate multi-role workflows simultaneously, you can use tabs within the same browser or use the **Demo Role Switch** pill in the top-right corner.
+- **Zero Cloud Dependencies**: Supabase and cloud auth have been completely replaced with a local SQLite database (`prisma/dev.db`).
+- **Demo Security**: Authentication uses server-signed HTTP-only session cookies (`mms_session`). Intended for local demonstration and academic evaluation.
+- **Resetting Demo Data**: Click **Reset Demo Data** in the top navigation bar or run `npm run db:seed` at any time to restore the default records.

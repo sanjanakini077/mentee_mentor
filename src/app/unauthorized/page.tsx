@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ShieldAlert, ArrowLeft, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { getCurrentUser, logoutDemoUser } from '@/lib/storage/demoStore'
+import { getCurrentUserAction, logoutAction } from '@/lib/actions/authActions'
 import type { Profile } from '@/types'
 
 const roleDashboardMap: Record<string, string> = {
@@ -22,13 +22,13 @@ function UnauthorizedContent() {
   const [profile, setProfile] = useState<Profile | null>(null)
 
   useEffect(() => {
-    const user = getCurrentUser()
-    setProfile(user)
+    getCurrentUserAction().then(setProfile)
   }, [])
 
-  const handleSignOut = () => {
-    logoutDemoUser()
+  const handleSignOut = async () => {
+    await logoutAction()
     router.push('/auth/sign-in')
+    router.refresh()
   }
 
   const userRole = profile?.role || 'authorized'

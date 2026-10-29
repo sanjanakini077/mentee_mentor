@@ -6,9 +6,26 @@ export interface Profile {
   role: Role
   full_name: string
   email: string
+  employee_id?: string
   department: string
   phone_number?: string
   avatar_url?: string
+  created_at: string
+  updated_at: string
+}
+
+export type DocumentType = 'marks_card' | 'transcript' | 'certificate' | 'other'
+
+export interface StudentDocument {
+  id: string
+  student_profile_id: string
+  title: string
+  document_type: DocumentType | string
+  original_filename: string
+  stored_filename: string
+  file_path: string
+  content_type: string
+  file_size: number
   created_at: string
   updated_at: string
 }
@@ -41,6 +58,7 @@ export interface StudentProfile {
   created_at?: string
   updated_at?: string
   profiles?: Profile
+  documents?: StudentDocument[]
 }
 
 // Backwards-compatible alias

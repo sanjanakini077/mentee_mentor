@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
-import { getCurrentUser, getStore, setCurrentUser } from '@/lib/storage/demoStore'
+import { getCurrentUserAction } from '@/lib/actions/authActions'
 import type { Profile, Role } from '@/types'
 
 export default function DashboardLayout({
@@ -18,38 +18,20 @@ export default function DashboardLayout({
 
   useEffect(() => {
     setMounted(true)
-    let currentUser = getCurrentUser()
+    let fallback: 'mentee' | 'mentor' | 'administrator' = 'mentee'
+    if (pathname.startsWith('/admin') || pathname.startsWith('/hod')) {
+      fallback = 'administrator'
+    } else if (pathname.startsWith('/mentor')) {
+      fallback = 'mentor'
+    }
 
-    // If no currentUser yet, infer appropriate demo account from route
-    if (!currentUser) {
-      const store = getStore()
-      if (pathname.startsWith('/admin') || pathname.startsWith('/hod')) {
-        currentUser = store.profiles.find((p) => p.email === 'hod@demo.com') || null
-      } else if (pathname.startsWith('/mentor')) {
-        currentUser = store.profiles.find((p) => p.email === 'mentor@demo.com') || null
-      } else {
-        currentUser = store.profiles.find((p) => p.email === 'student@demo.com') || null
-      }
-
+    getCurrentUserAction(fallback).then((currentUser) => {
       if (currentUser) {
-        setCurrentUser(currentUser)
+        setUser(currentUser)
+      } else {
+        router.push('/auth/sign-in')
       }
-    }
-
-    if (!currentUser) {
-      router.push('/auth/sign-in')
-      return
-    }
-
-    setUser(currentUser)
-
-    const handleChange = () => {
-      const updated = getCurrentUser()
-      if (updated) setUser(updated)
-    }
-
-    window.addEventListener('mms-store-changed', handleChange)
-    return () => window.removeEventListener('mms-store-changed', handleChange)
+    })
   }, [router, pathname])
 
   // Prevent hydration mismatch during SSR

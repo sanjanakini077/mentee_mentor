@@ -31,9 +31,10 @@ import {
   getAdminDashboardData,
   reviewStudentProfile,
   reviewMentorRecommendation,
+  getReviewWorkspaceData,
+  getStudentAcademicRecords,
   type AdminDashboardData,
 } from '@/lib/services/adminService'
-import { getStore } from '@/lib/storage/demoStore'
 import { formatDate } from '@/lib/utils'
 import type { AcademicRecord } from '@/types'
 
@@ -64,79 +65,55 @@ export default function AdminReviewWorkspacePage() {
   const [inspectAcademics, setInspectAcademics] = useState<AcademicRecord[]>([])
   const [loadingAcademics, setLoadingAcademics] = useState(false)
 
-    const loadData = useCallback(async () => {
-      try {
-        const d = await getAdminDashboardData()
-        setData(d)
-
-        const store = getStore()
-        const stdList = store.studentProfiles.map((s) => ({
-          ...s,
-          profiles: store.profiles.find((p) => p.id === s.profile_id),
-        }))
-
-        setAllSubmissions(stdList)
-
-        const deptRecs = store.recommendations.map((r) => {
-          const sp = store.studentProfiles.find((s) => s.id === r.student_profile_id)
-          const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
-          const mentorProf = store.profiles.find((p) => p.id === r.mentor_profile_id)
-          return {
-            ...r,
-            student: sp ? { ...sp, profiles: stProf } : null,
-            mentor: mentorProf || null,
-          }
-        })
-        setAllRecommendations(deptRecs)
-      } catch (err: any) {
-        toastError(err?.message || 'Failed to load review workspace.')
-      } finally {
-        setIsLoading(false)
-      }
+  const loadData = useCallback(async () => {
+    try {
+      const workspace = await getReviewWorkspaceData()
+      setData(workspace.dashboardData)
+      setAllSubmissions(workspace.allSubmissions)
+      setAllRecommendations(workspace.allRecommendations)
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to load review workspace.')
+    } finally {
+      setIsLoading(false)
+    }
   }, [toastError])
 
-    useEffect(() => {
-      loadData()
-      window.addEventListener('mms-store-changed', loadData)
-      return () => window.removeEventListener('mms-store-changed', loadData)
-}, [loadData])
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
-// Open Inspection & Decision Dialog
-const openDecisionDialog = async (item: {
-  type: 'student' | 'recommendation'
-  id: string
-  title: string
-  subtitle: string
-  details?: string
-  studentProfileId?: string
-  defaultDecision: 'approved' | 'rejected' | 'correction_requested'
-}) => {
-  setActiveItem(item)
-  setDecision(item.defaultDecision)
-  setReviewComment(
-    item.defaultDecision === 'approved'
-      ? item.type === 'student'
-        ? 'Approved after departmental verification and academic check.'
-        : 'Approved and endorsed for institutional sanction.'
-      : ''
-  )
+  // Open Inspection & Decision Dialog
+  const openDecisionDialog = async (item: {
+    type: 'student' | 'recommendation'
+    id: string
+    title: string
+    subtitle: string
+    details?: string
+    studentProfileId?: string
+    defaultDecision: 'approved' | 'rejected' | 'correction_requested'
+  }) => {
+    setActiveItem(item)
+    setDecision(item.defaultDecision)
+    setReviewComment(
+      item.defaultDecision === 'approved'
+        ? item.type === 'student'
+          ? 'Approved after departmental verification and academic check.'
+          : 'Approved and endorsed for institutional sanction.'
+        : ''
+    )
 
-  if (item.type === 'student') {
-    setLoadingAcademics(true)
-    try {
-      const store = getStore()
-      const records = store.academicRecords
-        .filter((r) => r.student_profile_id === item.id || r.student_id === item.id)
-        .sort((a, b) => a.semester - b.semester)
-
-      setInspectAcademics(records)
-    } catch (err) {
-      console.warn('Could not load academic records for review:', err)
-    } finally {
-      setLoadingAcademics(false)
+    if (item.type === 'student') {
+      setLoadingAcademics(true)
+      try {
+        const records = await getStudentAcademicRecords(item.id)
+        setInspectAcademics(records)
+      } catch (err) {
+        console.warn('Could not load academic records for review:', err)
+      } finally {
+        setLoadingAcademics(false)
+      }
     }
   }
-}
 
 const handleCommitReview = async () => {
   if (!activeItem || !decision) return

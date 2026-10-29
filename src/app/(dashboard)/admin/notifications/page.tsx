@@ -22,7 +22,7 @@ import {
   markNotificationAsRead,
   markAllProfileNotificationsAsRead,
 } from '@/lib/services/notificationService'
-import { getStore, getCurrentUser } from '@/lib/storage/demoStore'
+import { getCurrentUserAction } from '@/lib/actions/authActions'
 import { formatDateTime } from '@/lib/utils'
 import type { AppNotification } from '@/types'
 
@@ -35,30 +35,24 @@ export default function AdminNotificationsPage() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [isProcessing, setIsProcessing] = useState(false)
 
-    const loadData = useCallback(async () => {
-      try {
-        const store = getStore()
-        const user = getCurrentUser()
-        const admin =
-          store.profiles.find((p) => p.id === user?.id || p.email === 'hod@demo.com') ||
-          store.profiles.find((p) => p.role === 'administrator' || (p.role as string) === 'hod') ||
-          store.profiles[0]
-
-        setAdminId(admin.id)
-        const list = await getProfileNotifications(admin.id)
+  const loadData = useCallback(async () => {
+    try {
+      const user = await getCurrentUserAction('administrator')
+      if (user) {
+        setAdminId(user.id)
+        const list = await getProfileNotifications(user.id)
         setNotifications(list)
-      } catch (err: any) {
-        toastError(err?.message || 'Failed to load notifications.')
-      } finally {
-        setIsLoading(false)
       }
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to load notifications.')
+    } finally {
+      setIsLoading(false)
+    }
   }, [toastError])
 
-    useEffect(() => {
-      loadData()
-      window.addEventListener('mms-store-changed', loadData)
-      return () => window.removeEventListener('mms-store-changed', loadData)
-}, [loadData])
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
 const filtered = useMemo(() => {
   if (filter === 'unread') {

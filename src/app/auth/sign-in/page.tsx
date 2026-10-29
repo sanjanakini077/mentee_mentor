@@ -9,12 +9,14 @@ import {
   Lock,
   UserCheck,
   ShieldCheck,
-  Zap,
+  Database,
+  AlertCircle,
+  ArrowRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
-import { loginDemoUser } from '@/lib/storage/demoStore'
+import { loginAction } from '@/lib/actions/authActions'
 
 type ActivePortalRole = 'student' | 'faculty' | 'hod'
 
@@ -27,19 +29,28 @@ function SignInForm() {
   const [email, setEmail] = useState('student@demo.com')
   const [password, setPassword] = useState('demo123')
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleRoleTabChange = (role: ActivePortalRole) => {
     setSelectedRole(role)
+    setError(null)
     if (role === 'student') setEmail('student@demo.com')
     else if (role === 'faculty') setEmail('mentor@demo.com')
     else setEmail('hod@demo.com')
   }
 
-  const performLogin = (roleOrEmail: string) => {
+  const performLogin = async (roleOrEmail: string, pass = password) => {
     setIsLoading(true)
-    const user = loginDemoUser(roleOrEmail)
+    setError(null)
 
-    // Check safe redirect
+    const res = await loginAction(roleOrEmail, pass)
+    setIsLoading(false)
+
+    if (!res.success || !res.user) {
+      setError(res.error || 'Authentication failed. Please verify credentials.')
+      return
+    }
+
     if (
       redirectToParam &&
       redirectToParam.startsWith('/') &&
@@ -49,9 +60,9 @@ function SignInForm() {
       return
     }
 
-    if (user.role === 'mentor') {
+    if (res.user.role === 'mentor') {
       router.push('/mentor/dashboard')
-    } else if (user.role === 'administrator' || (user.role as string) === 'hod') {
+    } else if (res.user.role === 'administrator' || (res.user.role as string) === 'hod') {
       router.push('/admin/dashboard')
     } else {
       router.push('/mentee/dashboard')
@@ -60,7 +71,7 @@ function SignInForm() {
 
   const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault()
-    performLogin(email || selectedRole)
+    performLogin(email || selectedRole, password)
   }
 
   const roleMeta = {
@@ -86,7 +97,7 @@ function SignInForm() {
 
   return (
     <div className="w-full max-w-md">
-      {/* Branding Header */}
+      {/* Institutional Branding Header */}
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600 text-white shadow-sm mb-4">
           <GraduationCap size={24} />
@@ -95,7 +106,7 @@ function SignInForm() {
           Mentor–Mentee Management System
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Institutional ERP Portal • Academic Session 2024–2025
+          NMAM Institute of Technology • Department of ISE • 2024–2025
         </p>
       </div>
 
@@ -142,7 +153,7 @@ function SignInForm() {
           </div>
           <div className="mt-2 text-center">
             <span className="text-[11px] font-medium text-slate-500">
-              Active Role:{' '}
+              Active Portal:{' '}
               <span className="font-semibold text-slate-800">
                 {roleMeta[selectedRole].title}
               </span>
@@ -150,13 +161,20 @@ function SignInForm() {
           </div>
         </div>
 
-        {/* Demo Mode Notice */}
+        {/* Database Notice */}
         <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-lg text-xs text-blue-800 flex items-start gap-2">
-          <Zap size={14} className="text-blue-600 shrink-0 mt-0.5" />
+          <Database size={14} className="text-blue-600 shrink-0 mt-0.5" />
           <div className="leading-relaxed">
-            <span className="font-semibold">Local Demo Mode:</span> Runs completely in browser storage. Click any role or button below to enter directly.
+            <span className="font-semibold">Local SQLite Database:</span> Powered by local SQLite with Prisma ORM. No external Supabase or cloud setup required.
           </div>
         </div>
+
+        {error && (
+          <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+            <AlertCircle size={14} className="text-rose-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
 
         {/* Form Inputs */}
         <form onSubmit={handleSignIn} className="space-y-4">
@@ -210,6 +228,17 @@ function SignInForm() {
           >
             {roleMeta[selectedRole].buttonText}
           </Button>
+
+          <div className="flex items-center justify-between text-xs pt-1 px-1">
+            <span className="text-slate-500">New student without an account?</span>
+            <Link
+              href="/auth/sign-up"
+              className="font-semibold text-blue-600 hover:text-blue-700 hover:underline inline-flex items-center gap-1"
+            >
+              <span>Register as Student</span>
+              <ArrowRight size={13} />
+            </Link>
+          </div>
         </form>
 
         {/* Quick Instant Demo Access Buttons */}
@@ -220,7 +249,7 @@ function SignInForm() {
           <div className="grid grid-cols-1 gap-2">
             <button
               type="button"
-              onClick={() => performLogin('student')}
+              onClick={() => performLogin('student', 'demo123')}
               className="flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-blue-50 hover:text-blue-700 border border-slate-200 rounded-lg transition-colors text-left"
             >
               <div className="flex items-center gap-2">
@@ -232,7 +261,7 @@ function SignInForm() {
 
             <button
               type="button"
-              onClick={() => performLogin('mentor')}
+              onClick={() => performLogin('mentor', 'demo123')}
               className="flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 rounded-lg transition-colors text-left"
             >
               <div className="flex items-center gap-2">
@@ -244,7 +273,7 @@ function SignInForm() {
 
             <button
               type="button"
-              onClick={() => performLogin('hod')}
+              onClick={() => performLogin('hod', 'demo123')}
               className="flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-purple-50 hover:text-purple-700 border border-slate-200 rounded-lg transition-colors text-left"
             >
               <div className="flex items-center gap-2">

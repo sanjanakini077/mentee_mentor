@@ -23,7 +23,7 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { getStore } from '@/lib/storage/demoStore'
+import { getAllStudentsForAdmin } from '@/lib/services/adminService'
 import { formatDate } from '@/lib/utils'
 import type { StudentProfile, Profile, AcademicRecord } from '@/types'
 
@@ -33,52 +33,32 @@ export default function AdminStudentsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-    // Filters
-    const [search, setSearch] = useState('')
-    const [semesterFilter, setSemesterFilter] = useState('all')
-    const [mentorFilter, setMentorFilter] = useState('all')
-    const [statusFilter, setStatusFilter] = useState('all')
+  // Filters
+  const [search, setSearch] = useState('')
+  const [semesterFilter, setSemesterFilter] = useState('all')
+  const [mentorFilter, setMentorFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
 
-    // Inspector Dialog State
-    const [selectedStudent, setSelectedStudent] = useState<any | null>(null)
-    const [studentAcademics, setStudentAcademics] = useState<AcademicRecord[]>([])
-    const [isLoadingAcademics, setIsLoadingAcademics] = useState(false)
+  // Inspector Dialog State
+  const [selectedStudent, setSelectedStudent] = useState<any | null>(null)
+  const [studentAcademics, setStudentAcademics] = useState<AcademicRecord[]>([])
+  const [isLoadingAcademics, setIsLoadingAcademics] = useState(false)
 
-    const loadData = () => {
-      try {
-        const store = getStore()
-        const mentorList = store.profiles.filter((p) => p.role === 'mentor')
-        setMentors(mentorList)
-
-        const studentList = store.studentProfiles.map((s) => {
-          const prof = store.profiles.find((p) => p.id === s.profile_id)
-          const activeAssignment = store.mentorAssignments.find(
-            (a) => a.student_profile_id === s.id && a.is_active
-          )
-          const mentor = activeAssignment
-            ? store.profiles.find((p) => p.id === activeAssignment.mentor_profile_id)
-            : null
-
-          return {
-            ...s,
-            profiles: prof,
-            activeMentor: mentor,
-          }
-        })
-
-        setStudents(studentList)
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load department student directory.')
-      } finally {
-        setIsLoading(false)
-      }
+  const loadData = async () => {
+    try {
+      const data = await getAllStudentsForAdmin()
+      setMentors(data.mentors)
+      setStudents(data.students)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load department student directory.')
+    } finally {
+      setIsLoading(false)
     }
+  }
 
-    useEffect(() => {
-      loadData()
-      window.addEventListener('mms-store-changed', loadData)
-      return () => window.removeEventListener('mms-store-changed', loadData)
-    }, [])
+  useEffect(() => {
+    loadData()
+  }, [])
 
     // Filtered Students
     const filteredStudents = useMemo(() => {
@@ -111,11 +91,7 @@ export default function AdminStudentsPage() {
       setIsLoadingAcademics(true)
 
       try {
-        const store = getStore()
-        const records = store.academicRecords
-          .filter((r) => r.student_profile_id === st.id || r.student_id === st.id)
-          .sort((a, b) => a.semester - b.semester)
-
+        const records = (st.academic_records || []).slice().sort((a: any, b: any) => a.semester - b.semester)
         setStudentAcademics(records)
       } catch (err) {
         console.warn('Could not load course history:', err)

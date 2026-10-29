@@ -22,8 +22,7 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
-import { assignMentorToStudent } from '@/lib/services/adminService'
-import { getStore } from '@/lib/storage/demoStore'
+import { assignMentorToStudent, getAssignmentsPageData } from '@/lib/services/adminService'
 import { formatDate } from '@/lib/utils'
 import type { Profile } from '@/types'
 
@@ -47,44 +46,21 @@ export default function AdminAssignmentsPage() {
   const [viewTab, setViewTab] = useState<'active' | 'history'>('active')
 
   const loadData = async () => {
-      try {
-        const store = getStore()
-
-        // 1. Fetch department mentors
-        const mentorList = store.profiles.filter((p) => p.role === 'mentor')
-        setMentors(mentorList)
-
-        // 2. Fetch department students
-        const studentList = store.studentProfiles.map((sp) => ({
-          ...sp,
-          profiles: store.profiles.find((p) => p.id === sp.profile_id),
-        }))
-        setStudents(studentList)
-
-        // 3. Fetch all mentor_assignments
-        const assignList = store.mentorAssignments.map((a) => {
-          const sp = store.studentProfiles.find((s) => s.id === a.student_profile_id)
-          const stProf = sp ? store.profiles.find((p) => p.id === sp.profile_id) : null
-          const mentor = store.profiles.find((p) => p.id === a.mentor_profile_id)
-          return {
-            ...a,
-            student: sp ? { ...sp, profiles: stProf } : null,
-            mentor: mentor || null,
-          }
-        })
-        setAssignments(assignList)
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load mentorship allocations.')
-      } finally {
-        setIsLoading(false)
-      }
+    try {
+      const data = await getAssignmentsPageData()
+      setMentors(data.mentors)
+      setStudents(data.students)
+      setAssignments(data.assignments)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load mentorship allocations.')
+    } finally {
+      setIsLoading(false)
     }
+  }
 
-    useEffect(() => {
-      loadData()
-      window.addEventListener('mms-store-changed', loadData)
-      return () => window.removeEventListener('mms-store-changed', loadData)
-    }, [])
+  useEffect(() => {
+    loadData()
+  }, [])
 
     const openAllocateModal = (studentId?: string) => {
       setSelectedStudentId(studentId || students[0]?.id || '')

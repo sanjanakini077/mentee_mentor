@@ -1,43 +1,51 @@
-import { getStore, saveStore } from '@/lib/storage/demoStore'
+'use server'
+
+import prisma from '@/lib/prisma'
 import type { AppNotification, NotificationType } from '@/types'
 
 /**
- * Fetches in-app notifications for profile from demoStore
+ * Fetches in-app notifications for profile from SQLite via Prisma
  */
 export async function getProfileNotifications(profileId: string): Promise<AppNotification[]> {
-  const store = getStore()
-  return store.notifications
-    .filter((n) => n.recipient_profile_id === profileId)
-    .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())
+  const notifs = await prisma.notification.findMany({
+    where: { recipient_profile_id: profileId },
+    orderBy: { created_at: 'desc' },
+  })
+
+  return notifs.map((n) => ({
+    id: n.id,
+    recipient_profile_id: n.recipient_profile_id,
+    title: n.title,
+    message: n.message,
+    type: n.type as any,
+    related_entity_type: n.related_entity_type || undefined,
+    related_entity_id: n.related_entity_id || undefined,
+    is_read: n.is_read,
+    read: n.is_read,
+    created_at: n.created_at.toISOString(),
+    timestamp: n.created_at.toISOString(),
+  }))
 }
 
 /**
  * Marks an individual notification as read
  */
 export async function markNotificationAsRead(notificationId: string): Promise<boolean> {
-  const store = getStore()
-  const notif = store.notifications.find((n) => n.id === notificationId)
-  if (notif) {
-    notif.is_read = true
-    notif.read = true
-    saveStore(store)
-    return true
-  }
-  return false
+  await prisma.notification.update({
+    where: { id: notificationId },
+    data: { is_read: true },
+  })
+  return true
 }
 
 /**
  * Marks all notifications as read for a profile
  */
 export async function markAllProfileNotificationsAsRead(profileId: string): Promise<boolean> {
-  const store = getStore()
-  store.notifications.forEach((n) => {
-    if (n.recipient_profile_id === profileId) {
-      n.is_read = true
-      n.read = true
-    }
+  await prisma.notification.updateMany({
+    where: { recipient_profile_id: profileId },
+    data: { is_read: true },
   })
-  saveStore(store)
   return true
 }
 
@@ -52,20 +60,17 @@ export async function createInAppNotification(params: {
   relatedEntityType?: string
   relatedEntityId?: string
 }): Promise<boolean> {
-  const store = getStore()
-  const newNotif: AppNotification = {
-    id: `notif-${Date.now()}`,
-    recipient_profile_id: params.recipientProfileId,
-    title: params.title.trim(),
-    message: params.message.trim(),
-    type: params.type || 'info',
-    related_entity_type: params.relatedEntityType,
-    related_entity_id: params.relatedEntityId,
-    is_read: false,
-    created_at: new Date().toISOString(),
-  }
-  store.notifications.unshift(newNotif)
-  saveStore(store)
+  await prisma.notification.create({
+    data: {
+      recipient_profile_id: params.recipientProfileId,
+      title: params.title.trim(),
+      message: params.message.trim(),
+      type: params.type || 'info',
+      related_entity_type: params.relatedEntityType,
+      related_entity_id: params.relatedEntityId,
+      is_read: false,
+    },
+  })
   return true
 }
 
@@ -80,43 +85,15 @@ export async function notifyDepartmentHOD(params: {
   relatedEntityType?: string
   relatedEntityId?: string
 }): Promise<boolean> {
-  const store = getStore()
-  const hod = store.profiles.find(
-    (p) => p.role === 'administrator' || (p.role as string) === 'hod'
-  )
+  const hod = await prisma.profile.findFirst({
+    where: {
+      OR: [{ role: 'administrator' }, { role: 'hod' }, { email: 'hod@demo.com' }],
+    },
+  })
 
   if (hod) {
     return createInAppNotification({
       recipientProfileId: hod.id,
-      title: params.title,
-      message: params.message,
-      type: params.type || 'info',
-      relatedEntityType: params.relatedEntityType,
-      relatedEntityId: params.relatedEntityId,
-    })
-  }
-  return false
-}
-
-/**
- * Sends a notification to the assigned faculty mentor of a student
- */
-export async function notifyAssignedMentor(params: {
-  studentProfileId: string
-  title: string
-  message: string
-  type?: NotificationType
-  relatedEntityType?: string
-  relatedEntityId?: string
-}): Promise<boolean> {
-  const store = getStore()
-  const assign = store.mentorAssignments.find(
-    (a) => a.student_profile_id === params.studentProfileId && a.is_active
-  )
-
-  if (assign && assign.mentor_profile_id) {
-    return createInAppNotification({
-      recipientProfileId: assign.mentor_profile_id,
       title: params.title,
       message: params.message,
       type: params.type || 'info',

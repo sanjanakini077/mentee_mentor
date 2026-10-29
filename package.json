@@ -7,11 +7,19 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma db push",
+    "db:seed": "prisma db seed",
     "test": "node --experimental-strip-types --test tests/**/*.test.ts"
   },
+  "prisma": {
+    "seed": "node --experimental-strip-types prisma/seed.ts"
+  },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "lucide-react": "^0.460.0",
     "next": "^16.4.3",
+    "prisma": "^6.19.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
