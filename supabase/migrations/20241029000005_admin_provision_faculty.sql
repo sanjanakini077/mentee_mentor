@@ -160,3 +160,4 @@ $$;
 
 -- Grant execution to authenticated users (RLS & internal check verifies administrator role)
 GRANT EXECUTE ON FUNCTION public.admin_create_faculty(TEXT, TEXT, TEXT, TEXT) TO authenticated;
+
