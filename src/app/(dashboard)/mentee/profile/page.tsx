@@ -333,10 +333,11 @@ export default function MenteeProfilePage() {
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'profile'
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'profile'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
+            }`}
           >
             <User size={16} />
             <span>Profile Details</span>
@@ -344,10 +345,11 @@ export default function MenteeProfilePage() {
           <button
             type="button"
             onClick={() => setActiveTab('documents')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'documents'
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'documents'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
+            }`}
           >
             <Paperclip size={16} />
             <span>Academic Documents</span>
