@@ -28,26 +28,42 @@ function SignInForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [activeAction, setActiveAction] = useState<'form' | 'faculty' | 'hod' | null>(null)
 
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const executeSignIn = async (
+    targetEmail: string,
+    targetPassword: string,
+    actionType: 'form' | 'faculty' | 'hod' = 'form'
+  ) => {
+    if (!targetEmail.trim() || !targetPassword) {
+      setError('Please provide both institutional email address and password.')
+      return
+    }
+
     setError(null)
     setIsLoading(true)
+    setActiveAction(actionType)
 
     try {
       const supabase = createClient()
       const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+        email: targetEmail.trim(),
+        password: targetPassword,
       })
 
       if (authError) {
-        setError(authError.message)
+        if (authError.message.toLowerCase().includes('invalid login credentials')) {
+          setError(
+            `Invalid credentials for ${targetEmail.trim()}. If you just created this account, make sure the user exists in Supabase Auth (or run the seed SQL script in your Supabase SQL Editor).`
+          )
+        } else {
+          setError(authError.message)
+        }
         return
       }
 
       if (!data.user) {
-        setError('Authentication session not established. Please try again.')
+        setError('Authentication session could not be established. Please try again.')
         return
       }
 
@@ -58,11 +74,7 @@ function SignInForm() {
         .eq('user_id', data.user.id)
         .single()
 
-      if (profileError || !profile) {
-        // Fallback default role
-        router.push('/mentee/dashboard')
-        return
-      }
+      const userRole = profile?.role || 'mentee'
 
       // Check safe redirectTo parameter
       if (
@@ -70,11 +82,10 @@ function SignInForm() {
         redirectToParam.startsWith('/') &&
         !redirectToParam.startsWith('//')
       ) {
-        const role = profile.role
         const isAllowedPath =
-          (role === 'mentee' && redirectToParam.startsWith('/mentee')) ||
-          (role === 'mentor' && redirectToParam.startsWith('/mentor')) ||
-          ((role === 'administrator' || (role as string) === 'hod') &&
+          (userRole === 'mentee' && redirectToParam.startsWith('/mentee')) ||
+          (userRole === 'mentor' && redirectToParam.startsWith('/mentor')) ||
+          ((userRole === 'administrator' || (userRole as string) === 'hod') &&
             (redirectToParam.startsWith('/admin') ||
               redirectToParam.startsWith('/hod')))
 
@@ -85,7 +96,7 @@ function SignInForm() {
       }
 
       // Role-based redirect
-      switch (profile.role) {
+      switch (userRole) {
         case 'mentor':
           router.push('/mentor/dashboard')
           break
@@ -102,7 +113,33 @@ function SignInForm() {
       setError(err?.message || 'An unexpected error occurred during sign-in.')
     } finally {
       setIsLoading(false)
+      setActiveAction(null)
     }
+  }
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    executeSignIn(email, password, 'form')
+  }
+
+  const handleFacultyClick = () => {
+    // If user already typed their email/password, use them; otherwise use default demo credentials
+    const targetEmail = email.trim() || 'mentor.cse@college.edu'
+    const targetPassword = password || 'College@2024!'
+    setEmail(targetEmail)
+    setPassword(targetPassword)
+    setSelectedRole('faculty')
+    executeSignIn(targetEmail, targetPassword, 'faculty')
+  }
+
+  const handleHodClick = () => {
+    // If user already typed their email/password, use them; otherwise use default demo credentials
+    const targetEmail = email.trim() || 'hod.ise@nmamit.in'
+    const targetPassword = password || 'College@2024!'
+    setEmail(targetEmail)
+    setPassword(targetPassword)
+    setSelectedRole('hod')
+    executeSignIn(targetEmail, targetPassword, 'hod')
   }
 
   const roleMeta = {
@@ -110,19 +147,16 @@ function SignInForm() {
       title: 'Student Sign-In',
       buttonText: 'Sign In as Student',
       placeholder: 'student@college.edu',
-      badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
     },
     faculty: {
       title: 'Faculty Mentor Sign-In',
       buttonText: 'Sign In as Faculty Mentor',
-      placeholder: 'faculty@college.edu',
-      badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      placeholder: 'mentor.cse@college.edu',
     },
     hod: {
       title: 'Department HOD Sign-In',
       buttonText: 'Sign In as Department HOD',
       placeholder: 'hod.ise@nmamit.in',
-      badgeClass: 'bg-purple-50 text-purple-700 border-purple-200',
     },
   }[selectedRole]
 
@@ -196,13 +230,12 @@ function SignInForm() {
 
             <div className="mt-2.5 text-center">
               <span className="text-[11px] font-medium text-slate-500">
-                Active Portal:{' '}
-                <strong className="text-slate-800">{roleMeta.title}</strong>
+                Active Portal: <strong className="text-slate-800">{roleMeta.title}</strong>
               </span>
             </div>
           </div>
 
-          <form className="space-y-4" onSubmit={handleSignIn}>
+          <form className="space-y-4" onSubmit={handleFormSubmit}>
             <div>
               <Label htmlFor="email" required>
                 Institutional Email Address
@@ -252,7 +285,7 @@ function SignInForm() {
             {error && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700 flex items-start gap-2">
                 <AlertCircle size={15} className="shrink-0 mt-0.5 text-rose-600" />
-                <span>{error}</span>
+                <span className="leading-relaxed">{error}</span>
               </div>
             )}
 
@@ -260,46 +293,42 @@ function SignInForm() {
               type="submit"
               variant="primary"
               size="md"
-              isLoading={isLoading}
+              isLoading={isLoading && activeAction === 'form'}
               className="w-full"
             >
               {roleMeta.buttonText}
             </Button>
           </form>
 
-          {/* Quick Login Buttons for Faculty & HOD */}
+          {/* Quick Direct Login Buttons for Faculty & HOD */}
           <div className="mt-5 pt-4 border-t border-slate-100">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2.5 text-center">
-              Quick Role Shortcuts
+              Instant One-Click Login
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <button
+              <Button
                 type="button"
-                onClick={() => {
-                  setSelectedRole('faculty')
-                  setEmail('mentor.cse@college.edu')
-                  setPassword('College@2024!')
-                  setError(null)
-                }}
-                className="flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 text-slate-700 transition-colors"
+                variant="outline"
+                size="sm"
+                isLoading={isLoading && activeAction === 'faculty'}
+                onClick={handleFacultyClick}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 border-slate-300 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-800 text-xs font-semibold"
               >
-                <UserCheck size={14} className="text-emerald-600" />
+                <UserCheck size={15} className="text-emerald-600 shrink-0" />
                 <span>Faculty Login</span>
-              </button>
+              </Button>
 
-              <button
+              <Button
                 type="button"
-                onClick={() => {
-                  setSelectedRole('hod')
-                  setEmail('hod.ise@nmamit.in')
-                  setPassword('College@2024!')
-                  setError(null)
-                }}
-                className="flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium border border-slate-200 rounded-md bg-slate-50 hover:bg-purple-50 hover:border-purple-200 text-slate-700 transition-colors"
+                variant="outline"
+                size="sm"
+                isLoading={isLoading && activeAction === 'hod'}
+                onClick={handleHodClick}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 border-slate-300 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-800 text-xs font-semibold"
               >
-                <ShieldCheck size={14} className="text-purple-600" />
+                <ShieldCheck size={15} className="text-purple-600 shrink-0" />
                 <span>HOD Login</span>
-              </button>
+              </Button>
             </div>
           </div>
 
