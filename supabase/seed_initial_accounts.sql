@@ -23,20 +23,20 @@
 -- ==============================================================================
 -- Step 1: Have the HOD sign up through the application at /auth/sign-up or create
 --         the user in Supabase Dashboard > Authentication > Users ("Add User").
---         Example email: hod.cse@college.edu
+--         Example email: hod.ise@nmamit.in
 --
 -- Step 2: Run the following SQL snippet in the Supabase Dashboard SQL Editor:
 
 DO $$
 DECLARE
-  target_email TEXT := 'hod.cse@college.edu';
+  target_email TEXT := 'hod.ise@nmamit.in';
 BEGIN
   -- Update profile to administrator role and assign Department
   UPDATE public.profiles
   SET 
     role = 'administrator',
-    full_name = 'Dr. K. S. Venkatesh (HOD)',
-    department = 'Computer Science & Engineering',
+    full_name = 'HOD ISE (NMAMIT)',
+    department = 'Information Science & Engineering',
     phone_number = '+91 98765 43210'
   WHERE email = target_email;
 
@@ -104,25 +104,25 @@ BEGIN
   v_hashed_password := extensions.crypt('College@2024!', extensions.gen_salt('bf', 10));
 
   -- 1. Create HOD Administrator User
-  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE email = 'hod.cse@college.edu') THEN
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE email = 'hod.ise@nmamit.in') THEN
     INSERT INTO auth.users (
       id, instance_id, aud, role, email, encrypted_password,
       email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
       created_at, updated_at
     ) VALUES (
       v_hod_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-      'hod.cse@college.edu', v_hashed_password, NOW(),
+      'hod.ise@nmamit.in', v_hashed_password, NOW(),
       '{"provider":"email","providers":["email"]}',
-      '{"full_name":"Dr. Ramesh Kumar (HOD)","department":"Computer Science & Engineering","role":"administrator"}',
+      '{"full_name":"Dr. Balasubramani R (HOD ISE)","department":"Information Science & Engineering","role":"administrator"}',
       NOW(), NOW()
     );
 
     -- Elevate profile explicitly to administrator
     UPDATE public.profiles
-    SET role = 'administrator', full_name = 'Dr. Ramesh Kumar (HOD)', department = 'Computer Science & Engineering'
+    SET role = 'administrator', full_name = 'Dr. Balasubramani R (HOD ISE)', department = 'Information Science & Engineering'
     WHERE user_id = v_hod_uid;
     
-    RAISE NOTICE 'Created HOD account: hod.cse@college.edu / College@2024!';
+    RAISE NOTICE 'Created HOD account: hod.ise@nmamit.in / College@2024!';
   END IF;
 
   -- 2. Create Faculty Mentor 1 (Prof. Sunita Rao)

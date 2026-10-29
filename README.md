@@ -113,13 +113,13 @@ Run the following SQL in your Supabase SQL Editor to establish the Department He
 
 ```sql
 -- 1. Create the auth user in Supabase Auth
--- (Alternatively, sign up via /auth/sign-up with admin.cse@college.edu)
+-- (Alternatively, sign up via /auth/sign-up with hod.ise@nmamit.in)
 -- 2. Elevate user to administrator inside public.profiles
 UPDATE public.profiles
 SET role = 'administrator',
-    department = 'Computer Science and Engineering',
-    full_name = 'Dr. Rajesh Rao (HOD)'
-WHERE email = 'admin.cse@college.edu';
+    department = 'Information Science & Engineering',
+    full_name = 'Dr. Balasubramani R (HOD ISE)'
+WHERE email = 'hod.ise@nmamit.in';
 ```
 
 ### Step 2: Create a Faculty Mentor
