@@ -117,12 +117,34 @@ BEGIN
       NOW(), NOW()
     );
 
+    INSERT INTO auth.identities (
+      id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
+    ) VALUES (
+      v_hod_uid, v_hod_uid,
+      format('{"sub":"%s","email":"%s"}', v_hod_uid::text, 'hod.ise@nmamit.in')::jsonb,
+      'email', v_hod_uid::text, NOW(), NOW(), NOW()
+    ) ON CONFLICT DO NOTHING;
+
     -- Elevate profile explicitly to administrator
     UPDATE public.profiles
     SET role = 'administrator', full_name = 'Dr. Balasubramani R (HOD ISE)', department = 'Information Science & Engineering'
     WHERE user_id = v_hod_uid;
     
     RAISE NOTICE 'Created HOD account: hod.ise@nmamit.in / College@2024!';
+  ELSE
+    -- If user already exists in auth.users, ensure auth.identities is present
+    SELECT id INTO v_hod_uid FROM auth.users WHERE email = 'hod.ise@nmamit.in';
+    INSERT INTO auth.identities (
+      id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
+    ) VALUES (
+      v_hod_uid, v_hod_uid,
+      format('{"sub":"%s","email":"%s"}', v_hod_uid::text, 'hod.ise@nmamit.in')::jsonb,
+      'email', v_hod_uid::text, NOW(), NOW(), NOW()
+    ) ON CONFLICT DO NOTHING;
+
+    UPDATE public.profiles
+    SET role = 'administrator', full_name = 'Dr. Balasubramani R (HOD ISE)', department = 'Information Science & Engineering'
+    WHERE email = 'hod.ise@nmamit.in';
   END IF;
 
   -- 2. Create Faculty Mentor 1 (Prof. Sunita Rao)
@@ -139,11 +161,28 @@ BEGIN
       NOW(), NOW()
     );
 
+    INSERT INTO auth.identities (
+      id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
+    ) VALUES (
+      v_mentor_uid, v_mentor_uid,
+      format('{"sub":"%s","email":"%s"}', v_mentor_uid::text, 'mentor.cse@college.edu')::jsonb,
+      'email', v_mentor_uid::text, NOW(), NOW(), NOW()
+    ) ON CONFLICT DO NOTHING;
+
     UPDATE public.profiles
     SET role = 'mentor', full_name = 'Prof. Sunita Rao', department = 'Computer Science & Engineering'
     WHERE user_id = v_mentor_uid;
 
     RAISE NOTICE 'Created Mentor 1 account: mentor.cse@college.edu / College@2024!';
+  ELSE
+    SELECT id INTO v_mentor_uid FROM auth.users WHERE email = 'mentor.cse@college.edu';
+    INSERT INTO auth.identities (
+      id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
+    ) VALUES (
+      v_mentor_uid, v_mentor_uid,
+      format('{"sub":"%s","email":"%s"}', v_mentor_uid::text, 'mentor.cse@college.edu')::jsonb,
+      'email', v_mentor_uid::text, NOW(), NOW(), NOW()
+    ) ON CONFLICT DO NOTHING;
   END IF;
 
   -- 3. Create Faculty Mentor 2 (Dr. Rajesh Varma) for cross-mentor isolation testing

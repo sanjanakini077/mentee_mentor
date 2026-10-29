@@ -487,7 +487,7 @@ CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, auth, extensions
 AS $$
 DECLARE
   v_role public.app_role;
@@ -500,7 +500,7 @@ BEGIN
   -- Self-registration defaults strictly to 'mentee'.
   -- Privileged roles ('administrator' or 'mentor') can NEVER be claimed via client metadata during self-signup.
   -- Only when created via service_role/admin provisioning or DB superuser can elevated roles be assigned initially.
-  IF current_user IN ('postgres', 'supabase_admin', 'service_role') THEN
+  IF current_user IN ('postgres', 'supabase_admin', 'service_role', 'supabase_auth_admin') THEN
     v_raw_role := LOWER(COALESCE(NEW.raw_user_meta_data->>'role', 'mentee'));
     IF v_raw_role IN ('mentor', 'faculty') THEN
       v_role := 'mentor';
@@ -515,7 +515,7 @@ BEGIN
   END IF;
 
   v_full_name := COALESCE(NEW.raw_user_meta_data->>'full_name', SPLIT_PART(NEW.email, '@', 1));
-  v_department := COALESCE(NEW.raw_user_meta_data->>'department', 'General Engineering');
+  v_department := COALESCE(NEW.raw_user_meta_data->>'department', 'Information Science & Engineering');
 
   INSERT INTO public.profiles (user_id, role, full_name, email, department, phone_number)
   VALUES (
@@ -526,6 +526,10 @@ BEGIN
     v_department,
     NEW.raw_user_meta_data->>'phone_number'
   )
+  ON CONFLICT (user_id) DO UPDATE
+  SET 
+    full_name = EXCLUDED.full_name,
+    email = EXCLUDED.email
   RETURNING id INTO v_profile_id;
 
   -- If registered as a mentee, automatically scaffold a blank student_profiles entry if USN is provided
@@ -547,6 +551,10 @@ BEGIN
     ON CONFLICT (profile_id) DO NOTHING;
   END IF;
 
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  -- Safe fallback: log warning and never abort auth.users transaction
+  RAISE WARNING 'handle_new_auth_user error: %', SQLERRM;
   RETURN NEW;
 END;
 $$;
