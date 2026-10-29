@@ -5,11 +5,11 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  const next = searchParams.get('next') ?? '/'
+  const next = searchParams.get('next')
 
   if (code) {
     const cookieStore = request.cookies
-    let response = NextResponse.redirect(`${origin}${next}`)
+    let response = NextResponse.redirect(`${origin}${next || '/'}`)
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,7 +31,12 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      // Determine role-based redirect
+      // If an explicit next path is provided (e.g., reset-password), follow it
+      if (next) {
+        return NextResponse.redirect(`${origin}${next}`)
+      }
+
+      // Otherwise determine canonical dashboard by checking role in profiles table
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -43,18 +48,22 @@ export async function GET(request: NextRequest) {
           .eq('user_id', user.id)
           .single()
 
-        if (profile?.role) {
-          const roleMap: Record<string, string> = {
-            mentee: '/mentee',
-            mentor: '/mentor',
-            hod: '/hod',
-          }
-          const redirectTo = roleMap[profile.role as string] ?? '/mentee'
-          return NextResponse.redirect(`${origin}${redirectTo}`)
-        }
+        const rawRole = profile?.role ? String(profile.role).toLowerCase() : 'mentee'
+        const role = (rawRole === 'hod' || rawRole === 'administrator') ? 'administrator' : rawRole
+
+        const canonicalDashboard =
+          role === 'administrator'
+            ? '/admin/dashboard'
+            : role === 'mentor'
+            ? '/mentor/dashboard'
+            : '/mentee/dashboard'
+
+        return NextResponse.redirect(`${origin}${canonicalDashboard}`)
       }
 
-      return NextResponse.redirect(`${origin}${next}`)
+      return NextResponse.redirect(`${origin}/`)
+    } else {
+      console.error('Auth code exchange error:', error)
     }
   }
 

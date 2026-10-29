@@ -1,40 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { GraduationCap } from 'lucide-react'
+import { GraduationCap, Mail, Lock, User, IdCard, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Select } from '@/components/ui/Select'
-import type { Role } from '@/types'
-import { cn } from '@/lib/utils'
-
-interface RoleOption {
-  value: Role
-  label: string
-  description: string
-}
-
-const roleOptions: RoleOption[] = [
-  {
-    value: 'mentee',
-    label: 'Student (Mentee)',
-    description: 'Track academic progress, manage records, submit for verification',
-  },
-  {
-    value: 'mentor',
-    label: 'Faculty Mentor',
-    description: 'Counsel assigned students, log session notes, make recommendations',
-  },
-  {
-    value: 'hod',
-    label: 'HOD / Admin',
-    description: 'Departmental oversight, student verification, mentor allocation',
-  },
-]
 
 const departments = [
   'Computer Science and Engineering',
@@ -45,25 +19,19 @@ const departments = [
   'Civil Engineering',
 ]
 
-const roleRedirectMap: Record<Role, string> = {
-  mentee: '/mentee',
-  mentor: '/mentor',
-  hod: '/hod',
-  administrator: '/hod',
-}
-
 export default function SignUpPage() {
   const router = useRouter()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
+  const [usn, setUsn] = useState('')
+  const [department, setDepartment] = useState(departments[0])
+  const [semester, setSemester] = useState(1)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [role, setRole] = useState<Role>('mentee')
-  const [department, setDepartment] = useState(departments[0])
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
 
@@ -71,8 +39,14 @@ export default function SignUpPage() {
       setError('Passwords do not match.')
       return
     }
+
     if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+      setError('Password must be at least 8 characters long.')
+      return
+    }
+
+    if (!usn.trim()) {
+      setError('University Seat Number (USN) is required.')
       return
     }
 
@@ -81,14 +55,17 @@ export default function SignUpPage() {
     try {
       const supabase = createClient()
 
+      // Enforce role strictly on the server: role is ALWAYS 'mentee' for self-registration
       const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
+        email: email.trim(),
         password,
         options: {
           data: {
-            full_name: fullName,
-            role,
+            full_name: fullName.trim(),
+            role: 'mentee', // Fixed: Non-negotiable client self-registration role
             department,
+            usn: usn.trim().toUpperCase(),
+            semester,
           },
         },
       })
@@ -104,24 +81,56 @@ export default function SignUpPage() {
         return
       }
 
-      // Insert profile record
-      const { error: profileError } = await supabase.from('profiles').insert({
-        user_id: userId,
-        role,
-        full_name: fullName,
-        email,
-        department,
-      })
+      // Ensure profile record is created in profiles table
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle()
 
-      if (profileError) {
-        setError(profileError.message)
-        return
+      let profileId = existingProfile?.id
+
+      if (!profileId) {
+        const { data: newProfile, error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            user_id: userId,
+            role: 'mentee', // Hardcoded mentee role
+            full_name: fullName.trim(),
+            email: email.trim(),
+            department,
+          })
+          .select('id')
+          .single()
+
+        if (profileError && profileError.code !== '23505') {
+          console.warn('Profile insert notice:', profileError)
+        } else if (newProfile) {
+          profileId = newProfile.id
+        }
       }
 
-      router.push(roleRedirectMap[role])
+      // Ensure student_profiles record exists if profileId is available
+      if (profileId) {
+        const { error: studentProfileError } = await supabase
+          .from('student_profiles')
+          .insert({
+            profile_id: profileId,
+            usn: usn.trim().toUpperCase(),
+            department,
+            semester,
+            academic_batch: `${new Date().getFullYear()}-${new Date().getFullYear() + 4}`,
+          })
+        if (studentProfileError && studentProfileError.code !== '23505') {
+          console.warn('Student profile insert notice:', studentProfileError)
+        }
+      }
+
+      // Redirect student to their dedicated dashboard
+      router.push('/mentee/dashboard')
       router.refresh()
     } catch (err: any) {
-      setError(err?.message || 'Failed to create account')
+      setError(err?.message || 'Failed to complete registration.')
     } finally {
       setIsLoading(false)
     }
@@ -136,16 +145,15 @@ export default function SignUpPage() {
             <div className="w-12 h-12 rounded-md bg-accent flex items-center justify-center mb-3 text-white shadow-xs">
               <GraduationCap size={24} />
             </div>
-            <h1 className="text-base font-bold text-slate-900 tracking-tight">
-              Create ERP Account
+            <h1 className="text-base font-bold text-slate-900 tracking-tight text-center">
+              Student Registration
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 text-center mt-0.5">
               Mentor–Mentee Management System
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Full Name */}
+          <form onSubmit={handleSignUp} className="space-y-4">
             <div>
               <Label htmlFor="fullName" required>
                 Full Name
@@ -157,70 +165,47 @@ export default function SignUpPage() {
                 placeholder="e.g. Rohan Sharma"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
+                leftIcon={<User size={15} />}
                 required
               />
             </div>
 
-            {/* Email */}
-            <div>
-              <Label htmlFor="email" required>
-                Institutional Email Address
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="rohan.sharma@eng.college.edu"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="usn" required>
+                  University Seat No. (USN)
+                </Label>
+                <Input
+                  id="usn"
+                  type="text"
+                  placeholder="e.g. 1MS21CS084"
+                  value={usn}
+                  onChange={(e) => setUsn(e.target.value.toUpperCase())}
+                  className="font-mono uppercase"
+                  leftIcon={<IdCard size={15} />}
+                  required
+                />
+              </div>
 
-            {/* Role Selection */}
-            <div>
-              <Label required>Institutional Role</Label>
-              <div className="space-y-1.5 mt-1">
-                {roleOptions.map((option) => (
-                  <label
-                    key={option.value}
-                    className={cn(
-                      'flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors',
-                      role === option.value
-                        ? 'border-accent bg-blue-50/60 ring-1 ring-accent/30'
-                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/70'
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name="role"
-                      value={option.value}
-                      checked={role === option.value}
-                      onChange={() => setRole(option.value)}
-                      className="mt-0.5 accent-accent shrink-0"
-                    />
-                    <div>
-                      <p
-                        className={cn(
-                          'text-xs font-semibold',
-                          role === option.value ? 'text-accent' : 'text-slate-800'
-                        )}
-                      >
-                        {option.label}
-                      </p>
-                      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                        {option.description}
-                      </p>
-                    </div>
-                  </label>
-                ))}
+              <div>
+                <Label htmlFor="semester" required>
+                  Current Semester
+                </Label>
+                <Select
+                  id="semester"
+                  value={semester}
+                  onChange={(e) => setSemester(parseInt(e.target.value) || 1)}
+                  options={[1, 2, 3, 4, 5, 6, 7, 8].map((s) => ({
+                    value: s,
+                    label: `Semester ${s}`,
+                  }))}
+                />
               </div>
             </div>
 
-            {/* Department */}
             <div>
               <Label htmlFor="department" required>
-                Department
+                Engineering Department
               </Label>
               <Select
                 id="department"
@@ -230,7 +215,22 @@ export default function SignUpPage() {
               />
             </div>
 
-            {/* Password */}
+            <div>
+              <Label htmlFor="email" required>
+                Institutional Email Address
+              </Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="student.name@eng.college.edu"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                leftIcon={<Mail size={15} />}
+                required
+              />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="password" required>
@@ -243,13 +243,14 @@ export default function SignUpPage() {
                   placeholder="Min 8 chars"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  leftIcon={<Lock size={15} />}
                   required
                 />
               </div>
 
               <div>
                 <Label htmlFor="confirmPassword" required>
-                  Confirm
+                  Confirm Password
                 </Label>
                 <Input
                   id="confirmPassword"
@@ -258,15 +259,16 @@ export default function SignUpPage() {
                   placeholder="Repeat"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
+                  leftIcon={<Lock size={15} />}
                   required
                 />
               </div>
             </div>
 
-            {/* Error */}
             {error && (
-              <div className="px-3 py-2 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700">
-                {error}
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700 flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5 text-rose-600" />
+                <span>{error}</span>
               </div>
             )}
 
@@ -277,19 +279,30 @@ export default function SignUpPage() {
               isLoading={isLoading}
               className="w-full"
             >
-              {isLoading ? 'Creating account…' : 'Create Account'}
+              Register Student Account
             </Button>
           </form>
 
-          <p className="mt-5 text-center text-xs text-slate-500">
-            Already registered?{' '}
-            <Link
-              href="/auth/sign-in"
-              className="text-accent font-semibold hover:underline"
-            >
-              Sign in to ERP
-            </Link>
-          </p>
+          {/* Institutional Provisioning Notice */}
+          <div className="mt-5 pt-4 border-t border-slate-100 text-center space-y-2">
+            <p className="text-xs text-slate-500">
+              Already have an account?{' '}
+              <Link
+                href="/auth/sign-in"
+                className="text-accent font-semibold hover:underline"
+              >
+                Sign in to ERP
+              </Link>
+            </p>
+            <div className="p-2.5 bg-slate-50 rounded border border-slate-200 text-[11px] text-slate-500 text-left">
+              <strong className="text-slate-700 block mb-0.5">
+                Faculty & Administrator Notice:
+              </strong>
+              Faculty Mentor and HOD accounts are provisioned exclusively through
+              the Department Administration Office. Self-registration is restricted
+              to students.
+            </div>
+          </div>
         </div>
       </div>
     </div>

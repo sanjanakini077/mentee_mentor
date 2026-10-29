@@ -1,138 +1,243 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
-import { Eye, FileText, ThumbsUp } from 'lucide-react'
+import React, { useEffect, useState, useMemo } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import {
+  Users,
+  Search,
+  Filter,
+  Eye,
+  ExternalLink,
+  FileText,
+  ThumbsUp,
+  AlertTriangle,
+  Clock,
+  CheckCircle2,
+} from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { SearchFilterBar } from '@/components/ui/SearchFilterBar'
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Dialog } from '@/components/ui/Dialog'
-import { PREVIEW_ASSIGNED_STUDENTS } from '@/lib/preview-data'
-
-type AssignedStudent = typeof PREVIEW_ASSIGNED_STUDENTS[0]
+import { Skeleton } from '@/components/ui/Skeleton'
+import {
+  getMentorDashboardData,
+  type MentorStudentSummary,
+} from '@/lib/services/mentorService'
+import { formatDate } from '@/lib/utils'
 
 export default function MentorStudentsPage() {
+  const router = useRouter()
+  const [students, setStudents] = useState<MentorStudentSummary[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const [search, setSearch] = useState('')
   const [semesterFilter, setSemesterFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [selectedStudent, setSelectedStudent] = useState<AssignedStudent | null>(
-    null
-  )
 
-  // Filter students
+  useEffect(() => {
+    let isMounted = true
+    async function load() {
+      try {
+        const d = await getMentorDashboardData()
+        if (isMounted) {
+          setStudents(d.assignedStudents)
+        }
+      } catch (err: any) {
+        if (isMounted) setError(err?.message || 'Failed to load assigned students.')
+      } finally {
+        if (isMounted) setIsLoading(false)
+      }
+    }
+
+    load()
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   const filteredStudents = useMemo(() => {
-    return PREVIEW_ASSIGNED_STUDENTS.filter((st) => {
+    return students.filter((st) => {
       const matchesSearch =
         search === '' ||
-        st.profiles?.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-        st.usn.toLowerCase().includes(search.toLowerCase())
+        st.fullName.toLowerCase().includes(search.toLowerCase()) ||
+        st.usn.toLowerCase().includes(search.toLowerCase()) ||
+        st.email.toLowerCase().includes(search.toLowerCase())
 
       const matchesSemester =
         semesterFilter === 'all' || String(st.semester) === semesterFilter
 
       const matchesStatus =
-        statusFilter === 'all' || st.verification_status === statusFilter
+        statusFilter === 'all' || st.verificationStatus === statusFilter
 
       return matchesSearch && matchesSemester && matchesStatus
     })
-  }, [search, semesterFilter, statusFilter])
+  }, [students, search, semesterFilter, statusFilter])
 
-  const columns: ColumnDef<AssignedStudent>[] = [
+  const columns: ColumnDef<MentorStudentSummary>[] = [
     {
       key: 'usn',
       header: 'USN',
       sortable: true,
-      cell: (row) => <span className="font-mono font-semibold">{row.usn}</span>,
+      cell: (row) => (
+        <span className="font-mono font-bold text-slate-900 text-xs">
+          {row.usn}
+        </span>
+      ),
     },
     {
-      key: 'full_name',
-      header: 'Student Name',
+      key: 'fullName',
+      header: 'Student Name & Contact',
       sortable: true,
       cell: (row) => (
         <div>
-          <p className="font-semibold text-slate-800">{row.profiles?.full_name}</p>
-          <p className="text-[11px] text-slate-500 font-mono">
-            {row.profiles?.email}
-          </p>
+          <Link
+            href={`/mentor/students/${row.id}`}
+            className="font-bold text-slate-900 hover:text-accent hover:underline flex items-center gap-1.5"
+          >
+            <span>{row.fullName}</span>
+            <ExternalLink size={11} className="text-slate-400" />
+          </Link>
+          <span className="text-[11px] text-slate-500 font-mono block">
+            {row.email} {row.phone ? `• ${row.phone}` : ''}
+          </span>
         </div>
       ),
     },
     {
       key: 'semester',
-      header: 'Semester',
+      header: 'Academic Standing',
       sortable: true,
-      align: 'center',
       cell: (row) => (
-        <span className="font-semibold text-slate-700">Sem {row.semester}</span>
+        <div>
+          <span className="font-semibold text-slate-800 text-xs">
+            Sem {row.semester} ({row.department})
+          </span>
+          <span className="text-[11px] text-slate-400 block font-mono">
+            Batch {row.academicBatch}
+          </span>
+        </div>
       ),
     },
     {
-      key: 'cgpa',
-      header: 'CGPA',
+      key: 'verificationStatus',
+      header: 'Review Status',
       sortable: true,
-      align: 'right',
       cell: (row) => (
-        <span className="font-bold text-slate-900">{row.cgpa.toFixed(2)}</span>
+        <div>
+          <StatusBadge status={row.verificationStatus} />
+          {row.verificationStatus === 'submitted' && (
+            <span className="block text-[10px] text-blue-600 font-medium mt-0.5">
+              Action Required
+            </span>
+          )}
+        </div>
       ),
     },
     {
-      key: 'backlogs',
-      header: 'Backlogs',
-      sortable: true,
-      align: 'center',
+      key: 'academicSummary',
+      header: 'Recent Performance',
       cell: (row) => (
-        <span
-          className={`px-2 py-0.5 rounded text-xs font-semibold ${
-            row.backlogs === 0
-              ? 'bg-emerald-50 text-emerald-700'
-              : 'bg-rose-50 text-rose-700'
-          }`}
-        >
-          {row.backlogs}
+        <div className="text-xs space-y-0.5">
+          <span className="font-mono text-slate-700 block">
+            {row.totalCourses} Courses ({row.totalCredits} Cr)
+          </span>
+          <div className="flex items-center gap-2 text-[11px]">
+            {row.avgAttendance !== undefined ? (
+              <span
+                className={
+                  row.avgAttendance < 75
+                    ? 'text-rose-600 font-semibold'
+                    : 'text-slate-500'
+                }
+              >
+                Att: {row.avgAttendance}%
+              </span>
+            ) : (
+              <span className="text-slate-400">Att: —</span>
+            )}
+            {row.activeBacklogs > 0 ? (
+              <span className="text-rose-600 font-semibold">
+                {row.activeBacklogs} Backlog{row.activeBacklogs > 1 ? 's' : ''}
+              </span>
+            ) : (
+              <span className="text-emerald-600">0 Backlogs</span>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'lastNoteDate',
+      header: 'Last Mentored',
+      sortable: true,
+      cell: (row) => (
+        <span className="text-slate-600 text-xs font-mono">
+          {row.lastNoteDate ? formatDate(row.lastNoteDate) : <span className="text-slate-400">Never</span>}
         </span>
       ),
     },
     {
-      key: 'verification_status',
-      header: 'Status',
-      sortable: true,
-      cell: (row) => <StatusBadge status={row.verification_status} />,
-    },
-    {
       key: 'actions',
-      header: 'Action',
+      header: 'Student Dossier',
       align: 'right',
       cell: (row) => (
-        <Button
-          size="sm"
-          variant="outline"
-          leftIcon={<Eye size={13} />}
-          onClick={() => setSelectedStudent(row)}
-          className="h-7 text-xs"
-        >
-          Profile
-        </Button>
+        <Link href={`/mentor/students/${row.id}`}>
+          <Button
+            size="sm"
+            variant="outline"
+            leftIcon={<Eye size={12} />}
+            className="h-7 text-xs"
+          >
+            Open Profile
+          </Button>
+        </Link>
       ),
     },
   ]
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-96 w-full" />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Assigned Students Directory"
-        description="Search, inspect academic progress, and manage counseling for your assigned mentees."
+        title="Assigned Students Roster"
+        description="Official list of undergraduate students allocated to your faculty mentorship desk."
         breadcrumbs={[
-          { label: 'Faculty Portal', href: '/mentor' },
+          { label: 'Faculty Portal', href: '/mentor/dashboard' },
           { label: 'Assigned Students' },
         ]}
+        actions={
+          <div className="flex items-center gap-2">
+            <Link href="/mentor/notes">
+              <Button size="sm" variant="outline" leftIcon={<FileText size={14} />}>
+                Session Notes
+              </Button>
+            </Link>
+            <Link href="/mentor/recommendations">
+              <Button size="sm" variant="outline" leftIcon={<ThumbsUp size={14} />}>
+                Recommendations
+              </Button>
+            </Link>
+          </div>
+        }
       />
 
-      {/* Filter and Search Bar */}
+      {/* Search and Filters Bar */}
       <SearchFilterBar
         searchQuery={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by student name or USN..."
+        searchPlaceholder="Search assigned students by name, USN, or email..."
         resultsCount={filteredStudents.length}
         filters={[
           {
@@ -142,9 +247,14 @@ export default function MentorStudentsPage() {
             onChange: setSemesterFilter,
             options: [
               { value: 'all', label: 'All Semesters' },
+              { value: '1', label: 'Semester 1' },
+              { value: '2', label: 'Semester 2' },
               { value: '3', label: 'Semester 3' },
+              { value: '4', label: 'Semester 4' },
               { value: '5', label: 'Semester 5' },
+              { value: '6', label: 'Semester 6' },
               { value: '7', label: 'Semester 7' },
+              { value: '8', label: 'Semester 8' },
             ],
           },
           {
@@ -153,11 +263,12 @@ export default function MentorStudentsPage() {
             value: statusFilter,
             onChange: setStatusFilter,
             options: [
-              { value: 'all', label: 'All Statuses' },
-              { value: 'submitted', label: 'Submitted (Pending Review)' },
+              { value: 'all', label: 'All Review States' },
+              { value: 'submitted', label: 'Submitted for Review' },
               { value: 'approved', label: 'Approved' },
               { value: 'correction_requested', label: 'Correction Requested' },
-              { value: 'draft', label: 'Draft' },
+              { value: 'draft', label: 'Draft Mode' },
+              { value: 'rejected', label: 'Rejected' },
             ],
           },
         ]}
@@ -168,95 +279,21 @@ export default function MentorStudentsPage() {
         }}
       />
 
-      {/* Students Data Table */}
+      {/* Assigned Students Table */}
       <DataTable
         columns={columns as any}
         data={filteredStudents as any}
         defaultSortKey="usn"
         defaultSortDirection="asc"
         pageSize={10}
+        onRowClick={(row) => router.push(`/mentor/students/${row.id}`)}
+        emptyTitle="No assigned students found"
+        emptyDescription={
+          search || semesterFilter !== 'all' || statusFilter !== 'all'
+            ? 'No students match your active filter criteria.'
+            : 'You currently have no students assigned to your mentor profile. Allocations are managed by the Department HOD.'
+        }
       />
-
-      {/* Student Profile Quick View Dialog */}
-      {selectedStudent && (
-        <Dialog
-          isOpen={Boolean(selectedStudent)}
-          onClose={() => setSelectedStudent(null)}
-          title={`Student Profile — ${selectedStudent.profiles?.full_name}`}
-          description={`USN: ${selectedStudent.usn} • Semester ${selectedStudent.semester} • Department of CSE`}
-          footer={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSelectedStudent(null)}
-            >
-              Close
-            </Button>
-          }
-        >
-          <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded border border-slate-100">
-              <div>
-                <span className="text-slate-400 block">Verification Status:</span>
-                <StatusBadge status={selectedStudent.verification_status} />
-              </div>
-              <div>
-                <span className="text-slate-400 block">Cumulative CGPA:</span>
-                <span className="font-bold text-slate-800 text-sm">
-                  {selectedStudent.cgpa} / 10.0
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block">Active Backlogs:</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedStudent.backlogs}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block">Blood Group:</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedStudent.blood_group || '—'}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-2 border-t border-slate-100">
-              <p className="font-semibold text-slate-800">Contact Details</p>
-              <div className="grid grid-cols-2 gap-2 text-slate-600">
-                <div>
-                  <span className="text-slate-400 block">Phone:</span>
-                  <span className="font-mono">{selectedStudent.phone}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Email:</span>
-                  <span className="font-mono">{selectedStudent.profiles?.email}</span>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-slate-400 block">Address:</span>
-                  <span>{selectedStudent.address || '—'}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-2 border-t border-slate-100">
-              <p className="font-semibold text-slate-800">Parent / Guardian</p>
-              <div className="grid grid-cols-2 gap-2 text-slate-600">
-                <div>
-                  <span className="text-slate-400 block">Parent Name:</span>
-                  <span>{selectedStudent.parent_name || '—'}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Parent Phone:</span>
-                  <span className="font-mono">
-                    {selectedStudent.parent_phone || '—'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Dialog>
-      )}
     </div>
   )
 }
-

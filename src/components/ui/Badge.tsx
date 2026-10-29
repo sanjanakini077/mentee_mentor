@@ -89,10 +89,12 @@ export function statusToVariant(status: StatusString): BadgeVariant {
       return 'success'
     case 'submitted':
     case 'in_review':
+    case 'pending_review':
       return 'info'
     case 'pending':
       return 'warning'
     case 'correction_requested':
+    case 'changes_requested':
       return 'warning'
     case 'rejected':
       return 'danger'
@@ -106,9 +108,11 @@ export function statusToVariant(status: StatusString): BadgeVariant {
 export function formatStatusLabel(status: StatusString): string {
   switch (status.toLowerCase()) {
     case 'correction_requested':
-      return 'Correction Needed'
+    case 'changes_requested':
+      return 'Changes Requested'
     case 'submitted':
-      return 'Submitted for Review'
+    case 'pending_review':
+      return 'Pending Review'
     case 'approved':
       return 'Approved'
     case 'rejected':

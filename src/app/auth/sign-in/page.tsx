@@ -1,128 +1,168 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useState, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { GraduationCap, ArrowRight, ShieldCheck, UserCheck, User } from 'lucide-react'
+import { GraduationCap, Mail, Lock, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
-import type { Role } from '@/types'
 
-export default function SignInPage() {
+function SignInForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectToParam = searchParams.get('redirectTo')
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setIsLoading(true)
 
     try {
       const supabase = createClient()
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
         password,
       })
 
-      if (signInError) {
-        setError(signInError.message)
+      if (authError) {
+        setError(authError.message)
         return
       }
 
-      // Fetch profile to get role for redirect
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) {
-        setError('Authentication failed. Please try again.')
+      if (!data.user) {
+        setError('Authentication session not established. Please try again.')
         return
       }
 
-      const { data: profile } = await supabase
+      // Query trusted profile record to fetch role
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('role')
-        .eq('user_id', user.id)
+        .eq('user_id', data.user.id)
         .single()
 
-      const roleRedirectMap: Record<Role, string> = {
-        mentee: '/mentee',
-        mentor: '/mentor',
-        hod: '/hod',
-        administrator: '/hod',
+      if (profileError || !profile) {
+        // Fallback default role
+        router.push('/mentee/dashboard')
+        return
       }
 
-      if (profile?.role && profile.role in roleRedirectMap) {
-        router.push(roleRedirectMap[profile.role as Role])
-      } else {
-        router.push('/mentee')
+      // Check safe redirectTo parameter
+      if (
+        redirectToParam &&
+        redirectToParam.startsWith('/') &&
+        !redirectToParam.startsWith('//')
+      ) {
+        // Ensure redirect matches their role portal or general page
+        const role = profile.role
+        const isAllowedPath =
+          (role === 'mentee' && redirectToParam.startsWith('/mentee')) ||
+          (role === 'mentor' && redirectToParam.startsWith('/mentor')) ||
+          ((role === 'administrator' || (role as string) === 'hod') &&
+            (redirectToParam.startsWith('/admin') ||
+              redirectToParam.startsWith('/hod')))
+
+        if (isAllowedPath) {
+          router.push(redirectToParam)
+          return
+        }
       }
-      router.refresh()
+
+      // Role-based redirect
+      switch (profile.role) {
+        case 'mentor':
+          router.push('/mentor/dashboard')
+          break
+        case 'administrator':
+        case 'hod' as any:
+          router.push('/admin/dashboard')
+          break
+        case 'mentee':
+        default:
+          router.push('/mentee/dashboard')
+          break
+      }
     } catch (err: any) {
-      setError(err?.message || 'Failed to authenticate')
+      setError(err?.message || 'An unexpected error occurred during sign-in.')
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm space-y-4">
-        {/* Main Card */}
-        <div className="bg-white border border-slate-200 rounded-md shadow-sm p-7">
-          {/* Institution Monogram & Header */}
-          <div className="flex flex-col items-center mb-6">
-            <div className="w-12 h-12 rounded-md bg-accent flex items-center justify-center mb-3 text-white shadow-xs">
-              <GraduationCap size={24} />
-            </div>
-            <h1 className="text-base font-bold text-slate-900 text-center tracking-tight">
-              Mentor–Mentee System
-            </h1>
-            <p className="text-xs text-slate-500 text-center mt-0.5">
-              College of Engineering • ERP Portal
-            </p>
-          </div>
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-accent text-white shadow-sm mb-3">
+          <GraduationCap size={28} />
+        </div>
+        <h2 className="text-xl font-bold tracking-tight text-slate-900">
+          Mentor–Mentee Management System
+        </h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Institutional ERP Portal • Academic Session 2024–2025
+        </p>
+      </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-6 shadow-xs border border-slate-200 rounded-lg sm:px-10">
+          <form className="space-y-4" onSubmit={handleSignIn}>
             <div>
               <Label htmlFor="email" required>
-                Institutional Email
+                Institutional Email Address
               </Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="username@eng.college.edu"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+              <div className="mt-1 relative">
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  placeholder="name@college.edu"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  leftIcon={<Mail size={16} />}
+                />
+              </div>
             </div>
 
             <div>
-              <Label htmlFor="password" required>
-                Password
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" required>
+                  Password
+                </Label>
+                <Link
+                  href="/auth/forgot-password"
+                  className="text-xs text-accent hover:underline font-medium"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <div className="mt-1 relative">
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  leftIcon={<Lock size={16} />}
+                />
+              </div>
             </div>
 
             {error && (
-              <div className="px-3 py-2 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700">
-                {error}
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700 flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5 text-rose-600" />
+                <span>{error}</span>
               </div>
             )}
 
@@ -137,54 +177,37 @@ export default function SignInPage() {
             </Button>
           </form>
 
-          {/* Create Account Link */}
-          <p className="mt-5 text-center text-xs text-slate-500">
-            Need an account?{' '}
-            <Link
-              href="/auth/sign-up"
-              className="text-accent font-semibold hover:underline"
-            >
-              Register here
-            </Link>
-          </p>
-        </div>
-
-        {/* Phase 1 Portal Navigation Preview Launcher */}
-        <div className="bg-white border border-slate-200 rounded-md p-4 text-xs shadow-xs">
-          <p className="font-semibold text-slate-800 text-[11px] uppercase tracking-wider mb-2">
-            Explore Portal Layouts
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            <Link
-              href="/mentee"
-              className="p-2 border border-slate-200 rounded hover:border-accent hover:bg-blue-50/50 transition-colors text-center group"
-            >
-              <User size={14} className="mx-auto text-slate-500 group-hover:text-accent mb-1" />
-              <span className="font-semibold text-slate-700 group-hover:text-accent block text-[11px]">
-                Student
-              </span>
-            </Link>
-            <Link
-              href="/mentor"
-              className="p-2 border border-slate-200 rounded hover:border-accent hover:bg-blue-50/50 transition-colors text-center group"
-            >
-              <UserCheck size={14} className="mx-auto text-slate-500 group-hover:text-accent mb-1" />
-              <span className="font-semibold text-slate-700 group-hover:text-accent block text-[11px]">
-                Mentor
-              </span>
-            </Link>
-            <Link
-              href="/hod"
-              className="p-2 border border-slate-200 rounded hover:border-accent hover:bg-blue-50/50 transition-colors text-center group"
-            >
-              <ShieldCheck size={14} className="mx-auto text-slate-500 group-hover:text-accent mb-1" />
-              <span className="font-semibold text-slate-700 group-hover:text-accent block text-[11px]">
-                HOD
-              </span>
-            </Link>
+          {/* Student Registration Link */}
+          <div className="mt-5 pt-4 border-t border-slate-100 text-center space-y-2">
+            <p className="text-xs text-slate-500">
+              New student?{' '}
+              <Link
+                href="/auth/sign-up"
+                className="text-accent font-semibold hover:underline"
+              >
+                Register as Student
+              </Link>
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Faculty and HOD accounts are provisioned administratively.
+            </p>
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <SignInForm />
+    </Suspense>
   )
 }

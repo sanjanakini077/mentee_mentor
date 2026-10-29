@@ -103,11 +103,13 @@ BEGIN
     RAISE EXCEPTION 'Ownership tampering detected: profile user_id cannot be modified.';
   END IF;
 
-  -- If role is changing, ensure caller is an administrator
+  -- If role is changing, ensure caller is an administrator or database superuser/service_role
   IF NEW.role <> OLD.role THEN
-    v_caller_role := public.current_role();
-    IF v_caller_role IS NULL OR v_caller_role <> 'administrator' THEN
-      RAISE EXCEPTION 'Privilege escalation rejected: only administrators can alter role assignments.';
+    IF current_user NOT IN ('postgres', 'supabase_admin', 'service_role') THEN
+      v_caller_role := public.current_role();
+      IF v_caller_role IS NULL OR v_caller_role <> 'administrator' THEN
+        RAISE EXCEPTION 'Privilege escalation rejected: only administrators can alter role assignments.';
+      END IF;
     END IF;
   END IF;
 
@@ -242,13 +244,21 @@ DECLARE
   v_profile_id UUID;
   v_raw_role TEXT;
 BEGIN
-  -- Read role safely from user raw metadata
-  v_raw_role := LOWER(COALESCE(NEW.raw_user_meta_data->>'role', 'mentee'));
-  IF v_raw_role IN ('mentor', 'faculty') THEN
-    v_role := 'mentor';
-  ELSIF v_raw_role IN ('administrator', 'hod', 'admin') THEN
-    v_role := 'administrator';
+  -- Strict institutional security:
+  -- Self-registration defaults strictly to 'mentee'.
+  -- Privileged roles ('administrator' or 'mentor') can NEVER be claimed via client metadata during self-signup.
+  -- Only when created via service_role/admin provisioning or DB superuser can elevated roles be assigned initially.
+  IF current_user IN ('postgres', 'supabase_admin', 'service_role') THEN
+    v_raw_role := LOWER(COALESCE(NEW.raw_user_meta_data->>'role', 'mentee'));
+    IF v_raw_role IN ('mentor', 'faculty') THEN
+      v_role := 'mentor';
+    ELSIF v_raw_role IN ('administrator', 'hod', 'admin') THEN
+      v_role := 'administrator';
+    ELSE
+      v_role := 'mentee';
+    END IF;
   ELSE
+    -- Any public signup through anon key is unconditionally a mentee
     v_role := 'mentee';
   END IF;
 

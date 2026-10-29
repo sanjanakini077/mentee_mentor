@@ -13,10 +13,10 @@ import {
   ThumbsUp,
   ClipboardList,
   UserCheck,
+  Bell,
   ScrollText,
   X,
   GraduationCap,
-  Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -33,39 +33,41 @@ interface NavItem {
 
 const navItems: Record<Role, NavItem[]> = {
   mentee: [
-    { label: 'Overview', href: '/mentee', icon: LayoutDashboard },
+    { label: 'Dashboard', href: '/mentee/dashboard', icon: LayoutDashboard },
     { label: 'My Profile', href: '/mentee/profile', icon: User },
     { label: 'Academic Records', href: '/mentee/academics', icon: BookOpen },
-    { label: 'Verification Status', href: '/mentee/verification', icon: CheckSquare },
     { label: 'My Mentor', href: '/mentee/mentor', icon: UserCheck },
+    { label: 'Verification Desk', href: '/mentee/verification', icon: CheckSquare },
+    { label: 'Notifications', href: '/mentee/notifications', icon: Bell },
   ],
   mentor: [
-    { label: 'Overview', href: '/mentor', icon: LayoutDashboard },
+    { label: 'Dashboard', href: '/mentor/dashboard', icon: LayoutDashboard },
     { label: 'Assigned Students', href: '/mentor/students', icon: Users },
     { label: 'Mentoring Notes', href: '/mentor/notes', icon: FileText },
     { label: 'Recommendations', href: '/mentor/recommendations', icon: ThumbsUp },
-  ],
-  hod: [
-    { label: 'Overview', href: '/hod', icon: LayoutDashboard },
-    { label: 'Student Directory', href: '/hod/students', icon: Users },
-    { label: 'Mentor Allocation', href: '/hod/assignments', icon: ClipboardList },
-    { label: 'Recommendations', href: '/hod/recommendations', icon: ThumbsUp },
-    { label: 'Audit Trail', href: '/hod/audit', icon: ScrollText },
+    { label: 'Notifications', href: '/mentor/notifications', icon: Bell },
   ],
   administrator: [
-    { label: 'Overview', href: '/hod', icon: LayoutDashboard },
-    { label: 'Student Directory', href: '/hod/students', icon: Users },
-    { label: 'Mentor Allocation', href: '/hod/assignments', icon: ClipboardList },
-    { label: 'Recommendations', href: '/hod/recommendations', icon: ThumbsUp },
-    { label: 'Audit Trail', href: '/hod/audit', icon: ScrollText },
+    { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+    { label: 'Student Directory', href: '/admin/students', icon: Users },
+    { label: 'Mentor Allocation', href: '/admin/assignments', icon: ClipboardList },
+    { label: 'Recommendations', href: '/admin/recommendations', icon: ThumbsUp },
+    { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText },
+  ],
+  hod: [
+    { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+    { label: 'Student Directory', href: '/admin/students', icon: Users },
+    { label: 'Mentor Allocation', href: '/admin/assignments', icon: ClipboardList },
+    { label: 'Recommendations', href: '/admin/recommendations', icon: ThumbsUp },
+    { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText },
   ],
 }
 
 const roleLabels: Record<Role, string> = {
   mentee: 'Student Portal',
   mentor: 'Faculty Mentor',
-  hod: 'HOD Administration',
   administrator: 'HOD Administration',
+  hod: 'HOD Administration',
 }
 
 interface SidebarProps {
@@ -81,14 +83,14 @@ export function Sidebar({
   user,
   isOpen = false,
   onClose,
-  isPreview = false,
 }: SidebarProps) {
   const pathname = usePathname()
-  const items = navItems[role] || navItems.mentee
+  const normalizedRole: Role =
+    role === 'hod' || role === 'administrator' ? 'administrator' : role
+  const items = navItems[normalizedRole] || navItems.mentee
 
   const isActive = (href: string) => {
-    if (href === `/${role}`) return pathname === href
-    return pathname.startsWith(href)
+    return pathname === href || pathname.startsWith(href + '/')
   }
 
   const initials = user.full_name
@@ -126,61 +128,23 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Portal Role & Quick Switcher */}
-      <div className="px-3 pt-3 pb-2 border-b border-slate-100 bg-slate-50/70">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Current Portal
-          </span>
-          <Badge
-            variant={
-              role === 'hod' ? 'purple' : role === 'mentor' ? 'primary' : 'success'
-            }
-            className="text-[10px] py-0 px-1.5"
-          >
-            {roleLabels[role]}
-          </Badge>
-        </div>
-
-        {/* Quick portal navigation links for checking during phase 1 */}
-        <div className="mt-2 grid grid-cols-3 gap-1 bg-slate-200/60 p-0.5 rounded text-[10px]">
-          <Link
-            href="/mentee"
-            onClick={onClose}
-            className={cn(
-              'text-center py-1 rounded transition-colors',
-              role === 'mentee'
-                ? 'bg-white font-semibold text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            )}
-          >
-            Student
-          </Link>
-          <Link
-            href="/mentor"
-            onClick={onClose}
-            className={cn(
-              'text-center py-1 rounded transition-colors',
-              role === 'mentor'
-                ? 'bg-white font-semibold text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            )}
-          >
-            Mentor
-          </Link>
-          <Link
-            href="/hod"
-            onClick={onClose}
-            className={cn(
-              'text-center py-1 rounded transition-colors',
-              role === 'hod'
-                ? 'bg-white font-semibold text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            )}
-          >
-            HOD
-          </Link>
-        </div>
+      {/* Role Badge Indicator */}
+      <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          Portal Scope
+        </span>
+        <Badge
+          variant={
+            normalizedRole === 'administrator'
+              ? 'purple'
+              : normalizedRole === 'mentor'
+              ? 'primary'
+              : 'success'
+          }
+          className="text-[10px] py-0 px-1.5"
+        >
+          {roleLabels[normalizedRole]}
+        </Badge>
       </div>
 
       {/* Navigation Links */}
@@ -227,7 +191,7 @@ export function Sidebar({
         </ul>
       </nav>
 
-      {/* User Information & Sign Out Footer */}
+      {/* Authenticated User Account Footer */}
       <div className="border-t border-slate-200 p-3 bg-slate-50/50">
         <div className="flex items-center gap-2.5 mb-2.5">
           <div className="w-8 h-8 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center shrink-0">
@@ -237,18 +201,11 @@ export function Sidebar({
             <p className="text-xs font-semibold text-slate-800 truncate">
               {user.full_name}
             </p>
-            <p className="text-[10px] text-slate-500 truncate">
-              {user.department || 'Computer Science'}
+            <p className="text-[10px] text-slate-500 truncate font-mono">
+              {user.email}
             </p>
           </div>
         </div>
-
-        {isPreview && (
-          <div className="mb-2 px-2 py-1 bg-amber-50 border border-amber-200 rounded text-[10px] text-amber-800 flex items-center gap-1.5">
-            <Sparkles size={11} className="text-amber-600 shrink-0" />
-            <span className="truncate">Preview UI Mode active</span>
-          </div>
-        )}
 
         <SignOutButton />
       </div>
@@ -265,13 +222,11 @@ export function Sidebar({
       {/* Mobile Drawer Navigation with Backdrop */}
       {isOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
-          {/* Backdrop */}
           <div
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
             onClick={onClose}
             aria-hidden="true"
           />
-          {/* Slide-out Panel */}
           <aside
             className="fixed inset-y-0 left-0 w-64 bg-white shadow-xl flex flex-col z-10 animate-in slide-in-from-left duration-200"
             role="dialog"
