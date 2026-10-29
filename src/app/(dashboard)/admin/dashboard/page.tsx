@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   Users,
+  UserPlus,
   CheckSquare,
   ThumbsUp,
   Clock,
@@ -159,13 +160,18 @@ import { formatDate, formatDateTime } from '@/lib/utils'
               breadcrumbs={[{ label: 'Administration' }, { label: 'Dashboard' }]}
               actions={
                 <div className="flex items-center gap-2">
-                      <Link href="/admin/reviews">
-                        <Button size="sm" variant="primary" leftIcon={<CheckSquare size={14} />}>
-                          Open Review Queue ({awaitingReviewCount + pendingRecommendationsCount})
-                        </Button>
-                      </Link>
-                    </div>
-        }
+                  <Link href="/admin/faculty">
+                    <Button size="sm" variant="secondary" leftIcon={<UserPlus size={14} />}>
+                      Faculty Directory
+                    </Button>
+                  </Link>
+                  <Link href="/admin/reviews">
+                    <Button size="sm" variant="primary" leftIcon={<CheckSquare size={14} />}>
+                      Open Review Queue ({awaitingReviewCount + pendingRecommendationsCount})
+                    </Button>
+                  </Link>
+                </div>
+              }
       />
 
                           {/* Useful Metrics Row: 5 Small Informative Summary Cards */}

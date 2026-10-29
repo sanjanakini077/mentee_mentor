@@ -436,3 +436,109 @@ export async function assignMentorToStudent(params: {
   return true
 }
 
+export interface FacultyMemberItem {
+  id: string
+  fullName: string
+  email: string
+  phone: string | null
+  department: string
+  activeMenteeCount: number
+  createdAt: string
+}
+
+/**
+ * Retrieves all faculty mentors in the administrator's department with active mentee counts
+ */
+export async function getDepartmentFacultyList(): Promise<{
+  department: string
+  faculty: FacultyMemberItem[]
+}> {
+  const supabase = createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Authentication required.')
+
+  const { data: adminProf } = await supabase
+    .from('profiles')
+    .select('id, department')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!adminProf) throw new Error('Administrator profile not found.')
+
+  const dept = adminProf.department
+
+  // Fetch all mentors in department
+  const { data: mentorList, error: mentorErr } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, phone_number, department, created_at')
+    .eq('role', 'mentor')
+    .eq('department', dept)
+    .order('full_name', { ascending: true })
+
+  if (mentorErr) {
+    throw new Error(`Failed to load faculty roster: ${mentorErr.message}`)
+  }
+
+  // Fetch active assignments for these mentors
+  const mentorIds = (mentorList || []).map((m) => m.id)
+  let assignmentCounts: Record<string, number> = {}
+
+  if (mentorIds.length > 0) {
+    const { data: assignments } = await supabase
+      .from('mentor_assignments')
+      .select('mentor_profile_id')
+      .in('mentor_profile_id', mentorIds)
+      .eq('is_active', true)
+
+    if (assignments) {
+      assignments.forEach((a) => {
+        assignmentCounts[a.mentor_profile_id] = (assignmentCounts[a.mentor_profile_id] || 0) + 1
+      })
+    }
+  }
+
+  const faculty: FacultyMemberItem[] = (mentorList || []).map((m) => ({
+    id: m.id,
+    fullName: m.full_name,
+    email: m.email,
+    phone: m.phone_number,
+    department: m.department,
+    activeMenteeCount: assignmentCounts[m.id] || 0,
+    createdAt: m.created_at,
+  }))
+
+  return {
+    department: dept,
+    faculty,
+  }
+}
+
+/**
+ * Provisions a new faculty mentor account via the administrative endpoint
+ */
+export async function provisionFacultyMentor(params: {
+  email: string
+  fullName: string
+  password?: string
+  phone?: string
+}): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/admin/faculty', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+
+  const resJson = await response.json()
+  if (!response.ok) {
+    throw new Error(resJson.error || 'Failed to provision faculty mentor.')
+  }
+
+  return {
+    success: true,
+    message: resJson.message || 'Faculty member successfully created and ready to sign in.',
+  }
+}
+

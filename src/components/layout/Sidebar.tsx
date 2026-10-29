@@ -50,6 +50,7 @@ const navItems: Record<Role, NavItem[]> = {
   administrator: [
     { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'Student Directory', href: '/admin/students', icon: Users },
+    { label: 'Faculty Directory', href: '/admin/faculty', icon: UserCheck },
     { label: 'Review Workspace', href: '/admin/reviews', icon: CheckSquare },
     { label: 'Mentor Allocation', href: '/admin/assignments', icon: ClipboardList },
     { label: 'Recommendations', href: '/admin/recommendations', icon: ThumbsUp },
@@ -59,6 +60,7 @@ const navItems: Record<Role, NavItem[]> = {
   hod: [
     { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'Student Directory', href: '/admin/students', icon: Users },
+    { label: 'Faculty Directory', href: '/admin/faculty', icon: UserCheck },
     { label: 'Review Workspace', href: '/admin/reviews', icon: CheckSquare },
     { label: 'Mentor Allocation', href: '/admin/assignments', icon: ClipboardList },
     { label: 'Recommendations', href: '/admin/recommendations', icon: ThumbsUp },
