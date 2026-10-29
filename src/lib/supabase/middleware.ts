@@ -80,11 +80,23 @@ export async function updateSession(request: NextRequest) {
   // 5. Handle Authenticated Users
   if (user) {
     // Fetch user's verified role and department from the server-side profiles table
-    const { data: profile } = await supabase
+    let { data: profile } = await supabase
       .from('profiles')
       .select('id, role, department')
       .eq('user_id', user.id)
-      .single()
+      .maybeSingle()
+
+    if (!profile && user.email) {
+      const { data: profileByEmail } = await supabase
+        .from('profiles')
+        .select('id, role, department')
+        .eq('email', user.email)
+        .maybeSingle()
+
+      if (profileByEmail) {
+        profile = profileByEmail
+      }
+    }
 
     const rawRole = profile?.role ? String(profile.role).toLowerCase() : 'mentee'
     const role = (rawRole === 'hod' || rawRole === 'administrator') ? 'administrator' : rawRole

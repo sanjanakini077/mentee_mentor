@@ -71,35 +71,56 @@ export async function getMenteeFullData(): Promise<MenteeFullData> {
     throw new Error('You must be signed in as a student to access this portal.')
   }
 
-  // 2. Load user's profile
+  // 2. Load user's profile by user_id or email fallback
   let { data: profile } = await supabase
     .from('profiles')
     .select('*')
     .eq('user_id', user.id)
-    .single<Profile>()
+    .maybeSingle<Profile>()
+
+  if (!profile && user.email) {
+    const { data: profileByEmail } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', user.email)
+      .maybeSingle<Profile>()
+
+    if (profileByEmail) {
+      profile = profileByEmail
+      // Automatically sync the user_id if it differs
+      await supabase
+        .from('profiles')
+        .update({ user_id: user.id })
+        .eq('id', profileByEmail.id)
+    }
+  }
 
   if (!profile) {
     // If not found in profiles, create initial profile entry
     const initialName =
       user.user_metadata?.full_name || user.email?.split('@')[0] || 'Student'
     const initialDept =
-      user.user_metadata?.department || 'Computer Science & Engineering'
+      user.user_metadata?.department || 'Information Science & Engineering'
 
     const { data: newProfile, error: createProfileErr } = await supabase
       .from('profiles')
-      .insert({
-        user_id: user.id,
-        role: 'mentee',
-        full_name: initialName,
-        email: user.email!,
-        department: initialDept,
-        phone_number: user.user_metadata?.phone_number || null,
-      })
+      .upsert(
+        {
+          user_id: user.id,
+          role: 'mentee',
+          full_name: initialName,
+          email: user.email!,
+          department: initialDept,
+          phone_number: user.user_metadata?.phone_number || null,
+        },
+        { onConflict: 'email' }
+      )
       .select('*')
       .single<Profile>()
 
     if (createProfileErr || !newProfile) {
-      throw new Error('Unable to initialize user profile.')
+      console.error('Profile creation error:', createProfileErr)
+      throw new Error(createProfileErr?.message || 'Unable to initialize user profile.')
     }
     profile = newProfile
   }

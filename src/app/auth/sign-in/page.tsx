@@ -52,13 +52,30 @@ function SignInForm() {
       }
 
       // Query trusted profile record to fetch role
-      const { data: profile, error: profileError } = await supabase
+      let { data: profile } = await supabase
         .from('profiles')
-        .select('role')
+        .select('id, role, user_id')
         .eq('user_id', data.user.id)
-        .single()
+        .maybeSingle()
 
-      if (profileError || !profile) {
+      if (!profile && data.user.email) {
+        const { data: profileByEmail } = await supabase
+          .from('profiles')
+          .select('id, role, user_id')
+          .eq('email', data.user.email)
+          .maybeSingle()
+
+        if (profileByEmail) {
+          profile = profileByEmail
+          // Sync user_id
+          await supabase
+            .from('profiles')
+            .update({ user_id: data.user.id })
+            .eq('id', profileByEmail.id)
+        }
+      }
+
+      if (!profile) {
         // Fallback default role
         router.push('/mentee/dashboard')
         return
