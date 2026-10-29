@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -80,7 +80,7 @@ export default function MentorStudentDetailPage() {
   // Note Delete State
   const [noteToDelete, setNoteToDelete] = useState<MentorNote | null>(null)
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const data = await getAssignedStudentDetail(studentId)
       setDetail(data)
@@ -89,11 +89,11 @@ export default function MentorStudentDetailPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [studentId])
 
   useEffect(() => {
     loadData()
-  }, [studentId])
+  }, [loadData])
 
   // Save Note Handler
   const handleSaveNote = async () => {

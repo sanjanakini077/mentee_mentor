@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import {
   CheckSquare,
@@ -64,7 +64,7 @@ export default function AdminReviewWorkspacePage() {
   const [inspectAcademics, setInspectAcademics] = useState<AcademicRecord[]>([])
   const [loadingAcademics, setLoadingAcademics] = useState(false)
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const d = await getAdminDashboardData()
       setData(d)
@@ -120,11 +120,11 @@ export default function AdminReviewWorkspacePage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [toastError])
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [loadData])
 
   // Open Inspection & Decision Dialog
   const openDecisionDialog = async (item: {

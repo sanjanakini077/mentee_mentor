@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import {
   Bell,
@@ -35,7 +35,7 @@ export default function AdminNotificationsPage() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [isProcessing, setIsProcessing] = useState(false)
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const supabase = createClient()
       const {
@@ -60,11 +60,11 @@ export default function AdminNotificationsPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [toastError])
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [loadData])
 
   const filtered = useMemo(() => {
     if (filter === 'unread') {

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import {
   Bell,
@@ -34,7 +34,7 @@ export default function MentorNotificationsPage() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [isProcessing, setIsProcessing] = useState(false)
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const d = await getMentorDashboardData()
       setMentorId(d.mentorProfile.id)
@@ -44,11 +44,11 @@ export default function MentorNotificationsPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [toastError])
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [loadData])
 
   const filtered = useMemo(() => {
     if (filter === 'unread') {

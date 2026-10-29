@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -40,19 +40,19 @@ export function Topbar({ user, onOpenMobileMenu, pageTitle }: TopbarProps) {
   const profileRef = useRef<HTMLDivElement>(null)
 
   // Load real notifications from Supabase
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     if (user?.id) {
       const list = await getProfileNotifications(user.id)
       setNotifications(list)
     }
-  }
+  }, [user?.id])
 
   useEffect(() => {
     loadNotifications()
     // Poll notifications every 30s as a gentle background refresh
     const interval = setInterval(loadNotifications, 30000)
     return () => clearInterval(interval)
-  }, [user?.id])
+  }, [loadNotifications])
 
   // Close menus on outside click
   useEffect(() => {

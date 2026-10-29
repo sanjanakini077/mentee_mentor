@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import {
   Bell,
@@ -37,7 +37,7 @@ export default function MenteeNotificationsPage() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [isProcessing, setIsProcessing] = useState(false)
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const full = await getMenteeFullData()
       setData(full)
@@ -47,11 +47,11 @@ export default function MenteeNotificationsPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [toastError])
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [loadData])
 
   const filtered = useMemo(() => {
     if (filter === 'unread') {
