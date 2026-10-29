@@ -225,7 +225,7 @@ function SignInForm() {
             >
               <div className="flex items-center gap-2">
                 <GraduationCap size={15} className="text-blue-600" />
-                <span>Enter as <strong>Student</strong> (Gaurav B. Shet)</span>
+                <span>Enter as <strong>Student</strong> (Sanjana Kini)</span>
               </div>
               <span className="text-[10px] text-slate-400 font-mono">student@demo.com</span>
             </button>
@@ -237,7 +237,7 @@ function SignInForm() {
             >
               <div className="flex items-center gap-2">
                 <UserCheck size={15} className="text-emerald-600" />
-                <span>Enter as <strong>Faculty Mentor</strong> (Dr. K. S. Venkatesh)</span>
+                <span>Enter as <strong>Faculty Mentor</strong> (Dr. Jason Elroy Martis, Associate Professor)</span>
               </div>
               <span className="text-[10px] text-slate-400 font-mono">mentor@demo.com</span>
             </button>
@@ -249,7 +249,7 @@ function SignInForm() {
             >
               <div className="flex items-center gap-2">
                 <ShieldCheck size={15} className="text-purple-600" />
-                <span>Enter as <strong>Department HOD</strong> (Dr. Balasubramani R)</span>
+                <span>Enter as <strong>Department HOD</strong> (Dr. Ashwini B)</span>
               </div>
               <span className="text-[10px] text-slate-400 font-mono">hod@demo.com</span>
             </button>

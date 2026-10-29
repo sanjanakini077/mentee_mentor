@@ -25,8 +25,8 @@ export interface DemoStoreData {
   auditLogs: AuditLog[]
 }
 
-const STORAGE_KEY = 'MMS_DEMO_DATA_V1'
-const CURRENT_VERSION = 1
+const STORAGE_KEY = 'MMS_DEMO_DATA_V2'
+const CURRENT_VERSION = 2
 
 // Initial Default Demo Data
 const INITIAL_PROFILES: Profile[] = [
@@ -34,7 +34,7 @@ const INITIAL_PROFILES: Profile[] = [
     id: 'p-student-demo',
     user_id: 'u-student-demo',
     role: 'mentee',
-    full_name: 'Gaurav B. Shet',
+    full_name: 'Sanjana Kini',
     email: 'student@demo.com',
     department: 'Information Science & Engineering',
     phone_number: '+91 98450 12345',
@@ -78,7 +78,7 @@ const INITIAL_PROFILES: Profile[] = [
     id: 'p-mentor-demo',
     user_id: 'u-mentor-demo',
     role: 'mentor',
-    full_name: 'Dr. K. S. Venkatesh',
+    full_name: 'Dr. Jason Elroy Martis, Associate Professor',
     email: 'mentor@demo.com',
     department: 'Information Science & Engineering',
     phone_number: '+91 98450 11223',
@@ -100,7 +100,7 @@ const INITIAL_PROFILES: Profile[] = [
     id: 'p-hod-demo',
     user_id: 'u-hod-demo',
     role: 'administrator',
-    full_name: 'Dr. Balasubramani R (HOD ISE)',
+    full_name: 'Dr. Ashwini B',
     email: 'hod@demo.com',
     department: 'Information Science & Engineering',
     phone_number: '+91 98765 43210',
@@ -433,7 +433,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
     id: 'notif-1',
     recipient_profile_id: 'p-student-demo',
     title: 'Mentoring Note Added',
-    message: 'Dr. K. S. Venkatesh added a new mentoring note on Final Year Project Guidance.',
+    message: 'Dr. Jason Elroy Martis, Associate Professor added a new mentoring note on Final Year Project Guidance.',
     type: 'info',
     related_entity_type: 'mentor_notes',
     related_entity_id: 'note-1',
@@ -444,7 +444,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
     id: 'notif-2',
     recipient_profile_id: 'p-student-demo',
     title: 'Verification Status Submitted',
-    message: 'Your profile has been submitted and is currently under review by Department HOD.',
+    message: 'Your profile has been submitted and is currently under review by Department HOD Dr. Ashwini B.',
     type: 'info',
     related_entity_type: 'student_profiles',
     related_entity_id: 'sp-student-demo',
@@ -455,7 +455,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
     id: 'notif-3',
     recipient_profile_id: 'p-mentor-demo',
     title: 'New Student Profile Submitted',
-    message: 'Gaurav B. Shet submitted their profile for institutional verification.',
+    message: 'Sanjana Kini submitted their profile for institutional verification.',
     type: 'info',
     related_entity_type: 'student_profiles',
     related_entity_id: 'sp-student-demo',
@@ -466,7 +466,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
     id: 'notif-4',
     recipient_profile_id: 'p-hod-demo',
     title: 'Pending Mentor Recommendation',
-    message: 'Dr. K. S. Venkatesh submitted an Internship Recommendation for Gaurav B. Shet.',
+    message: 'Dr. Jason Elroy Martis, Associate Professor submitted an Internship Recommendation for Sanjana Kini.',
     type: 'warning',
     related_entity_type: 'mentor_recommendations',
     related_entity_id: 'rec-1',
@@ -477,7 +477,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
     id: 'notif-5',
     recipient_profile_id: 'p-hod-demo',
     title: 'Student Profile Awaiting Endorsement',
-    message: '1 student profile (Gaurav B. Shet) is pending review in the Department Workspace.',
+    message: '1 student profile (Sanjana Kini) is pending review in the Department Workspace.',
     type: 'info',
     related_entity_type: 'student_profiles',
     related_entity_id: 'sp-student-demo',

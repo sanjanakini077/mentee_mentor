@@ -68,9 +68,9 @@ The login page (`/auth/sign-in`) provides **instant 1-click portal entry** and p
 
 | Role | Demo Email | Demo Password | Default Name & Department |
 | :--- | :--- | :--- | :--- |
-| **Student** | `student@demo.com` | `demo123` | Gaurav B. Shet • ISE (Sem 6) |
-| **Faculty Mentor** | `mentor@demo.com` | `demo123` | Dr. K. S. Venkatesh • ISE |
-| **Department HOD** | `hod@demo.com` | `demo123` | Dr. Balasubramani R • HOD ISE |
+| **Student** | `student@demo.com` | `demo123` | Sanjana Kini • ISE (Sem 6) |
+| **Faculty Mentor** | `mentor@demo.com` | `demo123` | Dr. Jason Elroy Martis, Associate Professor • ISE |
+| **Department HOD** | `hod@demo.com` | `demo123` | Dr. Ashwini B • HOD ISE |
 
 You can also switch active roles on the fly using the **Demo Role Switch** buttons in the top-right profile dropdown.
 
