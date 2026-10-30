@@ -91,9 +91,6 @@ export async function getMenteeFullData(): Promise<MenteeFullData> {
           recommendations: {
             orderBy: { created_at: 'desc' },
           },
-          documents: {
-            orderBy: { created_at: 'desc' },
-          },
         },
       },
       notifications: {
@@ -138,9 +135,6 @@ export async function getMenteeFullData(): Promise<MenteeFullData> {
               orderBy: { note_date: 'desc' },
             },
             recommendations: {
-              orderBy: { created_at: 'desc' },
-            },
-            documents: {
               orderBy: { created_at: 'desc' },
             },
           },
@@ -278,19 +272,31 @@ export async function getMenteeFullData(): Promise<MenteeFullData> {
     timestamp: n.created_at.toISOString(),
   }))
 
-  const documents: StudentDocument[] = (sp.documents || []).map((doc) => ({
-    id: doc.id,
-    student_profile_id: doc.student_profile_id,
-    title: doc.title,
-    document_type: doc.document_type,
-    original_filename: doc.original_filename,
-    stored_filename: doc.stored_filename,
-    file_path: doc.file_path,
-    content_type: doc.content_type,
-    file_size: doc.file_size,
-    created_at: doc.created_at.toISOString(),
-    updated_at: doc.updated_at.toISOString(),
-  }))
+  // Query academic documents separately
+  let documents: StudentDocument[] = []
+  try {
+    const rawDocs = await (prisma as any).studentDocument?.findMany({
+      where: { student_profile_id: sp.id },
+      orderBy: { created_at: 'desc' },
+    })
+    if (rawDocs && Array.isArray(rawDocs)) {
+      documents = rawDocs.map((doc: any) => ({
+        id: doc.id,
+        student_profile_id: doc.student_profile_id,
+        title: doc.title,
+        document_type: doc.document_type,
+        original_filename: doc.original_filename,
+        stored_filename: doc.stored_filename,
+        file_path: doc.file_path,
+        content_type: doc.content_type,
+        file_size: doc.file_size,
+        created_at: doc.created_at instanceof Date ? doc.created_at.toISOString() : String(doc.created_at),
+        updated_at: doc.updated_at instanceof Date ? doc.updated_at.toISOString() : String(doc.updated_at),
+      }))
+    }
+  } catch (docErr) {
+    console.warn('Academic documents query skipped:', docErr)
+  }
 
   const comp = await calculateProfileCompletion(profile, studentProfile)
 
